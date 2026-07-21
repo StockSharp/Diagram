@@ -1,5 +1,5 @@
 // Install the compatibility runtime before any StockSharpDiagram instance is
-// constructed. It remains available as window.go for existing Designer code,
+// constructed. It remains available as window.go for existing integrations,
 // while the exports below are the canonical API for new consumers.
 import './ssdiagram.js';
 
@@ -68,7 +68,7 @@ export {
 } from './embed.js';
 
 // Low-level canvas engine. New application code normally uses
-// StockSharpDiagram; direct renderer consumers (Backoffice) can use this alias
+// StockSharpDiagram; direct renderer consumers can use this alias
 // or the dedicated "ssdiagram/ssgraph" entry point.
 export {
     Diagram as CanvasDiagram,

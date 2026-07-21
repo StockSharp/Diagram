@@ -2,7 +2,7 @@
 
 The complete StockSharp web strategy-diagram component: the typed
 `StockSharpDiagram` API, catalog and palette, the canvas renderer, the
-Docs/Portal embed layer, and the temporary `window.go` compatibility runtime.
+read-only web embed, and the temporary `window.go` compatibility runtime.
 
 ![StockSharp JS Strategy Diagram — visual strategy editor with typed connections and element palette](sample.png)
 
@@ -11,7 +11,7 @@ Docs/Portal embed layer, and the temporary `window.go` compatibility runtime.
 The demo uses the same full stack exported to applications. It is not a
 separate mock renderer.
 
-## What is actually current?
+## Architecture
 
 The original implementation is layered, not duplicated:
 
@@ -19,14 +19,13 @@ The original implementation is layered, not duplicated:
 | --- | --- | --- |
 | Public component API | `src/diagram/diagram.ts` | `StockSharpDiagram`: catalog-aware nodes, ports, validation, events, persistence, history and theming |
 | Models and palette | `src/diagram/{types,catalog,palette}.ts` | Public data model and draggable HTML element palette |
-| Web embed | `src/embed.ts` | Read-only rendering used by Docs and Portal |
+| Web embed | `src/embed.ts` | Self-contained read-only rendering for web applications |
 | Compatibility runtime | `src/ssdiagram.ts` | Implements the legacy diagram namespace on top of the canvas renderer |
 | Canvas renderer | `src/ssgraph.ts` | Drawing, routing, selection, editing, zoom, touch and overview |
 
 `ssgraph` is the current renderer, but it is not the whole component.
 `StockSharpDiagram` is the public application API. `embed.ts` is the newest
-site-facing layer and is part of the component because Docs and Portal consume
-it directly.
+browser-facing layer and provides a self-contained read-only integration.
 
 The standalone version also repairs the model boundary between
 `StockSharpDiagram` and the compatibility runtime: replacing a
@@ -34,23 +33,9 @@ The standalone version also repairs the model boundary between
 The embed layer therefore uses public methods instead of reaching through
 private `_bridge` and `ss` properties.
 
-## Commit provenance
-
-The source selection was checked against the StockSharpApps and Web histories:
-
-- `5fda0a143` — May 20: merged the typed Designer diagram API, catalog,
-  palette and types;
-- `a9f1e794e` — May 23: introduced `ssdiagram` over `ssgraph` and connected
-  the Designer to the in-house runtime;
-- `d79dcd793` — June 20: changed both runtime layers together for read-only
-  mode and node icons;
-- `0bbdfe5b7` — July 12: added the shared Docs/Portal `embed.ts` layer and
-  the matching link-lightness changes in `ssgraph`;
-- Web commit `0d35fc838` — July 12: wired that shared embed into both Docs
-  and Portal.
-
-This is why extracting only `ssgraph.ts` and `ssdiagram.ts` would lose the
-latest site integration and the real public API.
+The layers ship together so applications can use the high-level component,
+the read-only embed, or the low-level renderer without maintaining copied
+source files.
 
 ## Repository layout
 
@@ -64,7 +49,7 @@ src/
     palette.ts             draggable HTML palette
     event-emitter.ts
     ssdiagram.d.ts         legacy compatibility type surface
-  embed.ts                 Docs/Portal read-only renderer
+  embed.ts                 self-contained read-only web renderer
   ssdiagram.ts             compatibility runtime
   ssgraph.ts               canvas renderer
 examples/basic.ts          full-stack demo source
@@ -133,8 +118,8 @@ import { renderAll } from 'ssdiagram/source/embed';
 
 Dedicated entry points are available for consumers with narrower needs:
 
-- `ssdiagram/ssgraph` — low-level canvas renderer used by Backoffice;
-- `ssdiagram/embed` — compiled Docs/Portal renderer;
+- `ssdiagram/ssgraph` — low-level canvas renderer;
+- `ssdiagram/embed` — compiled read-only web renderer;
 - `ssdiagram/legacy` — compatibility runtime only;
 - `ssdiagram/catalog`, `ssdiagram/palette`, `ssdiagram/types`.
 

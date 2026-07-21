@@ -204,7 +204,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         // Auto-select the just-dropped node so the Properties panel
         // immediately reflects it — selecting fires the node template's
         // selectionChanged → 'nodeSelected', which the host wires to
-        // renderProperties. Matches the desktop Designer behaviour.
+        // renderProperties. Matches the established host selection behaviour.
         const dropped = this.diagram.findNodeForKey(data.id);
         if (dropped !== null) {
             // go.Diagram.select(part) deselects all others and selects the

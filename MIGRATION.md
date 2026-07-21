@@ -1,76 +1,47 @@
 # Consumer migration
 
-`Diagram/src` is intended to replace all duplicated diagram TypeScript in
-Broker.WebShared and Broker.Web.Designer.
+Use this repository as the source of truth instead of copying diagram source
+files into each application. Consumers can compile the TypeScript directly or
+use the generated JavaScript and declaration files from `dist`.
 
-## Source-of-truth map
+## Choose an entry point
 
-| Consumer | Entry point |
+| Use case | Package entry point |
 | --- | --- |
-| Broker Backoffice schema preview | `Diagram/src/ssgraph.ts` |
-| Broker Designer | `Diagram/src/index.ts` plus the public `diagram/*` modules |
-| Docs read-only diagrams | `Diagram/src/embed.ts` |
-| Portal `@diagram` rendering | `Diagram/src/embed.ts` |
+| Complete editable component | `ssdiagram` or `ssdiagram/source` |
+| Low-level canvas renderer | `ssdiagram/ssgraph` or `ssdiagram/source/ssgraph` |
+| Read-only web embed | `ssdiagram/embed` or `ssdiagram/source/embed` |
+| Compatibility runtime | `ssdiagram/legacy` or `ssdiagram/source/legacy` |
+| Catalog, palette and model types | `ssdiagram/catalog`, `ssdiagram/palette`, `ssdiagram/types` |
 
-Recommended checkout layout:
+Use a `/source` entry when the consuming build compiles TypeScript. Use the
+entry without `/source` when consuming the output of `npm run build`.
 
-```text
-stocksharp/
-  Diagram/
-  stocksharpapps/
-  web/
-```
+## Local source dependency
 
-## Broker Backoffice
-
-The Backoffice bundle can continue to use the lower-level renderer because its
-schema card needs only read-only canvas rendering:
-
-```ts
-import { Diagram } from '../../../../../Diagram/src/ssgraph';
-import type {
-  DiagramNodeInit,
-  LinkInit,
-} from '../../../../../Diagram/src/ssgraph';
-```
-
-Its existing esbuild step follows and compiles the TypeScript source.
-
-## Broker Designer
-
-The Designer should resolve its diagram imports to this repository instead of
-keeping local copies of `diagram.ts`, `types.ts`, `catalog.ts`,
-`palette.ts` and `event-emitter.ts`.
-
-With a local package dependency:
+Add the repository as a file dependency:
 
 ```json
 {
   "dependencies": {
-    "ssdiagram": "file:../../../Diagram"
+    "ssdiagram": "file:../Diagram"
   }
 }
 ```
 
-Application modules can then import:
+Then import the complete component from its public source entry:
 
 ```ts
 import {
-  StockSharpDiagram,
-  StockSharpCatalog,
-  StockSharpPalette,
   DiagramNode,
   Link,
+  StockSharpCatalog,
+  StockSharpDiagram,
+  StockSharpPalette,
 } from 'ssdiagram/source';
 ```
 
-Bundling that source entry includes the compatibility runtime automatically, so
-the Designer no longer needs a separately copied Broker.WebShared
-`ssdiagram.js`.
-
-## Docs and Portal
-
-The thin site entries should import the shared embed directly from Diagram:
+For read-only rendering:
 
 ```ts
 import {
@@ -78,24 +49,26 @@ import {
   renderFromInline,
   renderFromSource,
   renderScheme,
-} from '../../../../Diagram/src/embed';
+} from 'ssdiagram/source/embed';
 ```
 
-Because `embed.ts` imports the complete component transitively, each site's
-existing esbuild target produces a self-contained bundle. The separate
-`BundleSsDiagram` MSBuild target and the requirement to load
-`ssdiagram.js` first can then be removed.
+The consuming bundler follows these imports and compiles the required runtime
+into its application bundle.
 
-## Rollout
+## Browser bundles
 
-1. Publish and check out `Diagram` beside `stocksharpapps` and `web`.
-2. Move Docs and Portal imports from Designer's `embed.ts` to
-   `Diagram/src/embed.ts`.
-3. Move Backoffice to `Diagram/src/ssgraph.ts`.
-4. Alias the Designer's diagram imports to `Diagram/src`.
-5. Verify Designer editing, Backoffice read-only rendering, Docs and Portal.
-6. Remove the duplicated Broker.WebShared `ssgraph` / `ssdiagram` folders
-   and the copied Designer diagram modules only after every build is green.
+Applications that do not compile TypeScript can load a browser bundle from
+`dist`:
 
-During rollout, `dist/ssdiagram-legacy.js` remains available for pages that
-still compile the old Designer wrapper separately.
+- `dist/ssdiagram.js` — complete component exposed as `window.SSDiagram`;
+- `dist/ssgraph.js` — low-level renderer exposed as `window.SSGraph`;
+- `dist/ssdiagram-legacy.js` — compatibility-only runtime.
+
+## Migration checklist
+
+1. Add the package or local file dependency.
+2. Replace copied source files with imports from one of the public entry points.
+3. Run the consuming application's type check, tests and production build.
+4. Verify editing, persistence, read-only rendering, resize handling and themes.
+5. Remove old source copies and redundant bundle steps only after every consumer
+   has moved to the shared package.

@@ -1,13 +1,12 @@
 // ssdiagram.ts — Layer-B (`window.go` namespace) compatibility shim on
 // top of the in-house ssgraph engine.
 //
-// Why this exists: `Broker.Web.Designer/src/designer/diagram/diagram.ts`
-// (~1577 LOC) was written against an older declarative diagram surface
+// This exists for integrations written against an older declarative diagram surface
 // (`go.GraphObject.make`, `go.Diagram`, `go.Binding`, `go.Point`,
 // `go.Spot`, `go.Panel`, `go.GraphLinksModel`, `go.Adornment`,
 // `go.Overview`, …). Rewriting the call sites to the Layer-A
 // `StockSharpDiagram` surface is a separate, larger task. This shim
-// lets us run on ssgraph WITHOUT touching diagram.ts.
+// lets them run on ssgraph without rewriting every call site at once.
 //
 // Approach: ssgraph is procedural — its `Diagram` class renders nodes/
 // links/ports from its own model. The legacy declarative templates
@@ -854,8 +853,8 @@ const go = {
 	Overview,
 };
 
-// Publish on window so the Designer's diagram.ts (built as a separate
-// IIFE that references the ambient `go` global) can find us.
+// Publish on window so separately built compatibility wrappers that reference
+// the ambient `go` global can find the runtime.
 // TODO: `window.go` is kept as the compat-shape name diagram.ts already
 // reaches for — not a deliberate branding choice. Rename once diagram.ts
 // is rewritten against the Layer-A `StockSharpDiagram` surface.

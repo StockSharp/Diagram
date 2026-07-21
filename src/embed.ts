@@ -1,12 +1,10 @@
-// Shared read-only Designer-diagram embed layer, used by BOTH web sites (Portal and Docs) so the render
-// logic, palette loading and theming live in one place next to the diagram engine instead of being copied
-// into each site. The thin per-site entries (portal-diagram.ts / docs-diagram.ts) only import from here and
-// wire up the site-specific globals; esbuild bundles this module into each of them.
+// Shared read-only diagram embed layer. Rendering, palette loading and theming
+// live next to the diagram engine so web applications do not copy that logic.
 //
-// Two ways in: renderScheme(div, paletteUrl, scheme) draws a scheme the caller already has (the Docs
-// designer-education pages), while renderAll/renderFromSource/renderFromInline discover .ss-diagram-host
-// elements produced by the @diagram markup and fetch the schema from a URL or an embedded JSON block (the
-// Portal). Every failure degrades to a short inline note instead of throwing.
+// renderScheme draws a scheme supplied by the caller. renderAll,
+// renderFromSource and renderFromInline discover .ss-diagram-host elements and
+// load a schema from a URL or embedded JSON. Every failure degrades to a short
+// inline note instead of throwing.
 // StockSharpDiagram imports the compatibility runtime explicitly, so a bundle
 // containing this module is self-contained and does not require a preceding
 // window.go script.
@@ -131,8 +129,8 @@ function toDiagramNodes(scheme: Scheme, catalog: StockSharpCatalog): DiagramNode
 	});
 }
 
-// Port of DesignerSchemaService.ParseScheme (C#): walk the raw Designer JSON
-// Content.Value.Scheme.Model.{Nodes,Links} into the thin scheme. Defensive at every field so a partially
+// Walk the persisted Content.Value.Scheme.Model.{Nodes,Links} structure into
+// the thin scheme. Defensive at every field so a partially
 // broken document yields as many nodes as are readable; a wholly unusable one yields an empty scheme.
 function nodeName(node: Record<string, unknown>): string {
 	const settings = node?.Settings as Record<string, unknown> | undefined;
@@ -252,7 +250,7 @@ function note(div: HTMLElement, message: string): void {
 	div.classList.add('ss-diagram-error');
 }
 
-// Fetch the raw Designer schema JSON from srcUrl, transform it and draw it. Every failure mode -- an
+// Fetch the raw schema JSON from srcUrl, transform it and draw it. Every failure mode -- an
 // unreachable source, a non-JSON / malformed body, or an empty schema -- degrades to a short inline note
 // instead of throwing, so a bad @diagram never breaks the surrounding page.
 export async function renderFromSource(div: HTMLElement, paletteUrl: string, srcUrl: string): Promise<void> {
@@ -283,7 +281,7 @@ export async function renderFromSource(div: HTMLElement, paletteUrl: string, src
 	}
 }
 
-// Draw a host whose Designer schema JSON is embedded inline (the ```diagram markup: a
+// Draw a host whose schema JSON is embedded inline (a
 // <script type="application/json"> child holds the schema). Same degradation as renderFromSource: a
 // malformed/empty schema shows an inline note instead of throwing.
 export async function renderFromInline(div: HTMLElement, paletteUrl: string, json: string): Promise<void> {

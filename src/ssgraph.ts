@@ -2,9 +2,8 @@
 //
 // Shaped to the *Layer A* contract: the public API and event set mirror
 // `StockSharpDiagram` / `diagram/types.ts` / `DiagramEvents`, NOT the
-// legacy declarative `window.go` surface. That is the contract the
-// Designer actually depends on; the only 3 `window.go` leaks in the
-// app collapse to `deleteSelection()` here.
+// legacy declarative `window.go` surface. Compatibility-only calls collapse
+// to the corresponding procedural operations here.
 //
 // Dependency-free, pure 2D canvas. Demonstrates the hard parts: typed
 // in/out ports, bezier links, node drag, drag-to-link with validation,

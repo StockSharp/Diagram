@@ -1,6 +1,6 @@
 // Minimal ambient types for the legacy `window.go` namespace published
 // by the in-house ssdiagram compat shim (lib/ssdiagram.js). We
-// hand-roll only what the Designer wrapper actually touches.
+// hand-roll only what the compatibility wrapper actually touches.
 //
 // `GraphObject.make` returns `any` on purpose — its return type depends on
 // the first argument (a constructor or string template name) in ways we don't

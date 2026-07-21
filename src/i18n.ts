@@ -1,8 +1,6 @@
-// Shared localization bridge. The Razor host serializes IStringLocalizer
-// values into `window.__designerI18n` (see Index.cshtml); every TS module
-// reads them through `t(key, fallback)`. Keys map 1:1 to SharedResource
-// resx entries. Fallback is the English string so a missing key (older
-// cached page) degrades gracefully instead of showing a blank.
+// Shared localization bridge. A host can provide localized values through
+// `window.__designerI18n`; every module reads them through `t(key, fallback)`.
+// The English fallback prevents a missing or stale key from rendering blank.
 
 export interface DesignerI18n {
     // Panel titles (GoldenLayout tabs).

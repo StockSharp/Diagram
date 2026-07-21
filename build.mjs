@@ -33,7 +33,7 @@ const targets = [
     },
     {
         // Compatibility-only bundle for hosts that still load window.go before
-        // a separately compiled Designer wrapper.
+        // a separately compiled legacy wrapper.
         entryPoints: [join(here, 'src', 'ssdiagram.ts')],
         outfile: join(dist, 'ssdiagram-legacy.js'),
         globalName: 'SSDiagramLegacy',
