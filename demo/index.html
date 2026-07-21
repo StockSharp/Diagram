@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0e11">
+  <title>StockSharp JS Strategy Diagram</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./demo.css">
+</head>
+<body>
+  <header class="demo-header">
+    <span class="brand">StockSharp JS Strategy Diagram</span>
+    <span id="modelStats" class="model-stats"></span>
+    <span class="spacer"></span>
+    <button id="resetBtn" class="tbtn">Reset</button>
+    <button id="undoBtn" class="tbtn">Undo</button>
+    <button id="redoBtn" class="tbtn">Redo</button>
+    <button id="fitBtn" class="tbtn">Fit content</button>
+    <button id="readonlyBtn" class="tbtn">Read-only</button>
+    <button id="themeBtn" class="tbtn">☼ Light</button>
+    <button id="addBtn" class="tbtn primary">+ Node</button>
+  </header>
+
+  <main class="diagram-workspace">
+    <aside class="palette-panel">
+      <div class="panel-head">
+        <span>Elements</span>
+        <span class="panel-hint">drag to canvas</span>
+      </div>
+      <div class="palette-search-wrap">
+        <input id="paletteSearch" class="palette-search" type="search" placeholder="Search elements…">
+      </div>
+      <div id="palette"></div>
+    </aside>
+
+    <section class="canvas-panel">
+      <div class="canvas-caption">
+        <span class="symbol">SMA CROSSOVER</span>
+        <span>BTC/USDT · 1m</span>
+      </div>
+      <div id="diagram" aria-label="Interactive StockSharp strategy diagram"></div>
+      <div class="canvas-help">Drag nodes · connect matching sockets · wheel to zoom · double-click to fit</div>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <span class="status-dot"></span>
+    <span id="status">Ready.</span>
+    <span class="spacer"></span>
+    <span>StockSharpDiagram + ssdiagram + ssgraph</span>
+  </footer>
+
+  <script src="../dist/demo.js"></script>
+</body>
+</html>

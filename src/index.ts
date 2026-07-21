@@ -1,0 +1,89 @@
+// Install the compatibility runtime before any StockSharpDiagram instance is
+// constructed. It remains available as window.go for existing Designer code,
+// while the exports below are the canonical API for new consumers.
+import './ssdiagram.js';
+
+export {
+    StockSharpDiagram,
+} from './diagram/diagram.js';
+
+export type {
+    ContextCommand,
+    ContextCommandPayload,
+    DiagramEvents,
+    DiagramOptions,
+    DiagramThemeOptions,
+    LinkChangePayload,
+    LinkHoverPayload,
+    LinkSelectedPayload,
+    LinkValidationPayload,
+    LinkValidator,
+    LinkValidatorArgs,
+    LoadFinishedPayload,
+    NodeChangePayload,
+    NodeHoverPayload,
+    NodeMovedPayload,
+    NodeSelectedPayload,
+    PortHoverPayload,
+    PortSelectedPayload,
+} from './diagram/diagram.js';
+
+export { StockSharpCatalog } from './diagram/catalog.js';
+export type { CatalogEvents } from './diagram/catalog.js';
+
+export {
+    PALETTE_DRAG_MIME,
+    StockSharpPalette,
+} from './diagram/palette.js';
+export type { PaletteOptions } from './diagram/palette.js';
+
+export {
+    DiagramNode,
+    Link,
+    Node,
+    Port,
+    PortType,
+} from './diagram/types.js';
+
+export type {
+    DiagramNodeInit,
+    LinkEndpoint,
+    LinkInit,
+    NodeData,
+    NodeInit,
+    PaletteGroupData,
+    PaletteNodeData,
+    ParamSchema,
+    PortData,
+    PortDirection,
+    PortInit,
+    PortTypeInit,
+} from './diagram/types.js';
+
+export {
+    renderAll,
+    renderFromInline,
+    renderFromSource,
+    renderScheme,
+} from './embed.js';
+
+// Low-level canvas engine. New application code normally uses
+// StockSharpDiagram; direct renderer consumers (Backoffice) can use this alias
+// or the dedicated "ssdiagram/ssgraph" entry point.
+export {
+    Diagram as CanvasDiagram,
+    LinkModel,
+    NodeModel,
+    PortModel,
+    version,
+} from './ssgraph.js';
+
+export type {
+    DiagramNodeInit as CanvasDiagramNodeInit,
+    DiagramOptions as CanvasDiagramOptions,
+    LinkInit as CanvasLinkInit,
+    LinkValidator as CanvasLinkValidator,
+    LinkValidatorArgs as CanvasLinkValidatorArgs,
+    PortDirection as CanvasPortDirection,
+    PortInit as CanvasPortInit,
+} from './ssgraph.js';

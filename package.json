@@ -1,0 +1,74 @@
+{
+  "name": "ssdiagram",
+  "version": "0.1.0",
+  "description": "Complete StockSharp strategy-diagram stack: typed API, canvas runtime, palette, web embed and legacy compatibility.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "./dist/esm/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.js"
+    },
+    "./ssgraph": {
+      "types": "./dist/types/ssgraph.d.ts",
+      "import": "./dist/esm/ssgraph.js"
+    },
+    "./diagram": {
+      "types": "./dist/types/diagram/diagram.d.ts",
+      "import": "./dist/esm/diagram/diagram.js"
+    },
+    "./catalog": {
+      "types": "./dist/types/diagram/catalog.d.ts",
+      "import": "./dist/esm/diagram/catalog.js"
+    },
+    "./palette": {
+      "types": "./dist/types/diagram/palette.d.ts",
+      "import": "./dist/esm/diagram/palette.js"
+    },
+    "./types": {
+      "types": "./dist/types/diagram/types.d.ts",
+      "import": "./dist/esm/diagram/types.js"
+    },
+    "./embed": {
+      "types": "./dist/types/embed.d.ts",
+      "import": "./dist/esm/embed.js"
+    },
+    "./legacy": {
+      "types": "./dist/types/ssdiagram.d.ts",
+      "import": "./dist/esm/ssdiagram.js"
+    },
+    "./source": "./src/index.ts",
+    "./source/ssgraph": "./src/ssgraph.ts",
+    "./source/diagram": "./src/diagram/diagram.ts",
+    "./source/catalog": "./src/diagram/catalog.ts",
+    "./source/palette": "./src/diagram/palette.ts",
+    "./source/types": "./src/diagram/types.ts",
+    "./source/embed": "./src/embed.ts",
+    "./source/legacy": "./src/ssdiagram.ts"
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "MIGRATION.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "serve": "node serve.mjs",
+    "build:tests": "node build-tests.mjs",
+    "test": "npm run typecheck && npm run build:tests && node --test \"tests/_dist/**/*.test.cjs\"",
+    "pack:check": "npm run build && npm pack --dry-run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}
