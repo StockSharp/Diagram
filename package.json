@@ -55,8 +55,7 @@
     "src",
     "LICENSE",
     "NOTICE",
-    "README.md",
-    "MIGRATION.md"
+    "README.md"
   ],
   "scripts": {
     "build": "node build.mjs",

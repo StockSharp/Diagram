@@ -153,8 +153,6 @@ contents. GitHub Pages publishes the demo from `main`; GitHub Releases receive
 the built tarball. Public npm publication is intentionally disabled with
 `private: true` under the proprietary StockSharp license.
 
-See [MIGRATION.md](MIGRATION.md) for the consumer migration map.
-
 ## License
 
 Copyright © 2010-present StockSharp Platform LLC and/or its affiliates. All
