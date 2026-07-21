@@ -4,6 +4,8 @@ The complete StockSharp web strategy-diagram component: the typed
 `StockSharpDiagram` API, catalog and palette, the canvas renderer, the
 Docs/Portal embed layer, and the temporary `window.go` compatibility runtime.
 
+![StockSharp JS Strategy Diagram — visual strategy editor with typed connections and element palette](sample.png)
+
 **Live demo: https://stocksharp.github.io/Diagram/demo/**
 
 The demo uses the same full stack exported to applications. It is not a
