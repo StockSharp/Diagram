@@ -15,8 +15,13 @@ const paletteHost = document.querySelector<HTMLElement>('#palette');
 const search = document.querySelector<HTMLInputElement>('#paletteSearch');
 const status = document.querySelector<HTMLElement>('#status');
 const modelStats = document.querySelector<HTMLElement>('#modelStats');
+const indicatorDialog = document.querySelector<HTMLDialogElement>('#indicatorDialog');
+const indicatorForm = document.querySelector<HTMLFormElement>('#indicatorForm');
+const indicatorTitle = document.querySelector<HTMLElement>('#indicatorTitle');
+const indicatorPeriod = document.querySelector<HTMLInputElement>('#indicatorPeriod');
 
-if (diagramHost === null || paletteHost === null || search === null || status === null || modelStats === null)
+if (diagramHost === null || paletteHost === null || search === null || status === null || modelStats === null
+    || indicatorDialog === null || indicatorForm === null || indicatorTitle === null || indicatorPeriod === null)
     throw new Error('Diagram demo markup is incomplete.');
 
 const svgIcon = (label: string, color: string): string => {
@@ -48,6 +53,12 @@ const catalog = new StockSharpCatalog();
         description: 'Calculates a moving average over candle closes.',
         groupName: 'Indicators',
         icon: svgIcon('MA', '#a779e9'),
+        openAction: 'indicatorSettings',
+        parameters: [{
+            name: 'Period', displayName: 'Period', description: 'Moving-average length.',
+            type: 'number', defaultValue: '20', options: [], min: 1, max: 1000,
+            displayOrder: 1, category: 'General', isBasic: true, editorType: '',
+        }],
         inPorts: [{ id: 'source', name: 'Source', type: 'Candle', maxLinks: 1 }],
         outPorts: [{ id: 'value', name: 'Value', type: 'Decimal' }],
     }),
@@ -107,6 +118,11 @@ function node(typeId: string, id: string, name: string, x: number, y: number): D
         description: type.description,
         groupName: type.groupName,
         icon: type.icon,
+        openAction: type.openAction,
+        parameters: type.parameters.map((parameter) => ({ ...parameter, options: [...parameter.options] })),
+        paramValues: typeId === 'sma'
+            ? { Period: name.match(/\((\d+)\)/)?.[1] ?? '20' }
+            : {},
         inPorts: type.inPorts.map((port) => port.clone()),
         outPorts: type.outPorts.map((port) => port.clone()),
         x,
@@ -138,6 +154,7 @@ const seedLinks = (): Link[] => [
 let light = new URLSearchParams(window.location.search).get('theme') === 'light';
 let readOnly = false;
 let customSequence = 1;
+let activeIndicator: DiagramNode | null = null;
 
 function setStatus(message: string): void {
     status.textContent = message;
@@ -184,6 +201,36 @@ diagram.on('linkAdded', ({ link }) => {
 diagram.on('linkRemoved', updateState);
 diagram.on('linkValidation', ({ allowed }) => {
     if (!allowed) setStatus('Rejected: socket types are incompatible.');
+});
+diagram.on('nodeOpen', ({ nodes }) => {
+    const selected = nodes[0];
+    if (selected?.openAction !== 'indicatorSettings') return;
+    activeIndicator = selected;
+    indicatorTitle.textContent = selected.name;
+    indicatorPeriod.value = selected.paramValues.Period
+        ?? selected.name.match(/\((\d+)\)/)?.[1]
+        ?? '20';
+    if (indicatorDialog.open) indicatorDialog.close();
+    indicatorDialog.showModal();
+    indicatorPeriod.focus();
+    indicatorPeriod.select();
+    setStatus(`Opened indicator settings: ${selected.name}`);
+});
+
+indicatorForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (activeIndicator === null || !indicatorPeriod.reportValidity()) return;
+    const period = indicatorPeriod.value;
+    const baseName = activeIndicator.name.replace(/\s*\(\d+\)\s*$/, '');
+    diagram.setNodeParamValue(activeIndicator.id, 'Period', period);
+    diagram.setNodeName(activeIndicator.id, `${baseName} (${period})`);
+    setStatus(`Updated ${baseName}: period ${period}`);
+    indicatorDialog.close();
+    activeIndicator = null;
+});
+document.querySelector<HTMLButtonElement>('#indicatorCancelBtn')!.addEventListener('click', () => {
+    activeIndicator = null;
+    indicatorDialog.close();
 });
 
 search.addEventListener('input', () => palette.setFilter(search.value));

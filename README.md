@@ -98,6 +98,24 @@ diagram.setTheme({
 See `examples/basic.ts` for catalog construction, the draggable palette,
 typed links, history, read-only mode, resize handling and theme switching.
 
+### Node actions
+
+Double-click handling is opt-in. Give only the node types controlled by the
+host a non-empty `openAction`, then dispatch that value from `nodeOpen`:
+
+```ts
+catalog.addNodeType(new Node({
+  id: 'indicator',
+  name: 'Indicator',
+  openAction: 'indicatorSettings',
+}));
+
+diagram.on('nodeOpen', ({ nodes }) => {
+  const node = nodes[0];
+  if (node?.openAction === 'indicatorSettings') openIndicatorDialog(node);
+});
+```
+
 ## Source-first consumption
 
 Applications can let their own esbuild/Vite build compile this repository's

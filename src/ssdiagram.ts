@@ -443,6 +443,13 @@ class ModelBridge {
 			const tmpl = diagram._nodeTemplate as unknown as { selectionChanged?: (part: unknown) => void };
 			tmpl?.selectionChanged?.(live);
 		});
+		ss.on('nodeOpen', (e) => {
+			const data = this.model.nodeDataArray.find((d) => d.id === e.node.id);
+			if (data === undefined || typeof data.openAction !== 'string' || data.openAction.length === 0) return;
+			const live = this.getOrCreateLiveNode(e.node.id, data);
+			const tmpl = diagram._nodeTemplate as unknown as { doubleClick?: (event: unknown, node: unknown) => void };
+			tmpl?.doubleClick?.({}, live);
+		});
 		ss.on('linkSelected', (e) => {
 			if (e.link === null) return;
 			const live = this.getOrCreateLiveLink(e.link);
@@ -554,6 +561,7 @@ class ModelBridge {
 				if (name === 'color' && typeof nodeData.color === 'string' && nodeData.color.length > 0) ssNode.color = nodeData.color;
 				if (name === 'border' && typeof nodeData.border === 'string' && nodeData.border.length > 0) ssNode.border = nodeData.border;
 				if (name === 'name' && typeof nodeData.name === 'string') ssNode.name = nodeData.name;
+				if (name === 'openAction') ssNode.openAction = typeof nodeData.openAction === 'string' ? nodeData.openAction : '';
 				if (name === 'loc' && typeof nodeData.loc === 'string') {
 					const p = Point.parse(nodeData.loc);
 					ssNode.x = p.x; ssNode.y = p.y;
@@ -601,6 +609,7 @@ class ModelBridge {
 			color: typeof data.color === 'string' && data.color.length > 0 ? data.color : undefined,
 			border: typeof data.border === 'string' && data.border.length > 0 ? data.border : undefined,
 			icon: typeof data.icon === 'string' ? data.icon : undefined,
+			openAction: typeof data.openAction === 'string' ? data.openAction : undefined,
 			x: loc.x,
 			y: loc.y,
 			inPorts: (data.inPorts ?? []).map(toInit),
@@ -615,6 +624,8 @@ class ModelBridge {
 			name: n.name,
 			color: n.color,
 			border: n.border,
+			icon: n.icon,
+			openAction: n.openAction,
 			loc: `${n.x} ${n.y}`,
 			inPorts: n.inPorts.map((p) => ({ id: p.id, name: p.name, type: p.type, maxLinks: p.maxLinks, direction: 'in' })),
 			outPorts: n.outPorts.map((p) => ({ id: p.id, name: p.name, type: p.type, maxLinks: p.maxLinks, direction: 'out' })),

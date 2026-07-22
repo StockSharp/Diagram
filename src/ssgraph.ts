@@ -29,6 +29,8 @@ export interface DiagramNodeInit {
     y?: number;
     inPorts?: PortInit[];
     outPorts?: PortInit[];
+    /** Non-empty host action enables node double-click tracking. */
+    openAction?: string;
 }
 
 export interface LinkInit {
@@ -76,6 +78,7 @@ interface DiagramEvents {
     linkHover: { link: LinkModel; hovering: boolean };
     linkValidation: { from: PortModel; to: PortModel; allowed: boolean };
     portHover: { node: NodeModel; port: PortModel; hovering: boolean };
+    nodeOpen: { node: NodeModel };
     loadFinished: { nodes: NodeModel[]; links: LinkModel[] };
     zoomChanged: { scale: number };
     // Long-press on touch / right-click on desktop. (x, y) are page coords
@@ -118,6 +121,7 @@ export class NodeModel {
     color: string;
     border: string;
     icon: string;
+    openAction: string;
     x: number;
     y: number;
     inPorts: PortModel[];
@@ -132,6 +136,7 @@ export class NodeModel {
         this.color = init.color ?? '#d7d7d7';
         this.border = init.border ?? '#8c8c8c';
         this.icon = init.icon ?? '';
+        this.openAction = init.openAction ?? '';
         this.x = typeof init.x === 'number' ? init.x : 0;
         this.y = typeof init.y === 'number' ? init.y : 0;
         this.inPorts = (init.inPorts ?? []).map((p) => new PortModel(p, 'in'));
@@ -339,6 +344,7 @@ export class Diagram {
         const snapshot: DiagramNodeInit = {
             id, typeId: node.typeId, name: node.name,
             color: node.color, border: node.border,
+            icon: node.icon, openAction: node.openAction,
             x: node.x, y: node.y,
             inPorts:  node.inPorts.map((p)  => ({ id: p.id, name: p.name, type: p.type, direction: p.direction })),
             outPorts: node.outPorts.map((p) => ({ id: p.id, name: p.name, type: p.type, direction: p.direction })),
@@ -522,10 +528,11 @@ export class Diagram {
         this.zoomToFit();
         this.playIntro();
     }
-    save(): { nodes: Array<Required<Pick<DiagramNodeInit, 'id' | 'typeId' | 'name' | 'color' | 'border' | 'x' | 'y'>> & { inPorts: PortInit[]; outPorts: PortInit[] }>; links: LinkInit[] } {
+    save(): { nodes: Array<Required<Pick<DiagramNodeInit, 'id' | 'typeId' | 'name' | 'color' | 'border' | 'x' | 'y'>> & { openAction?: string; inPorts: PortInit[]; outPorts: PortInit[] }>; links: LinkInit[] } {
         return {
             nodes: this.nodes.map((n) => ({
                 id: n.id, typeId: n.typeId, name: n.name, color: n.color, border: n.border,
+                ...(n.openAction.length > 0 ? { openAction: n.openAction } : {}),
                 x: n.x, y: n.y,
                 inPorts: n.inPorts.map((p) => ({ id: p.id, name: p.name, type: p.type, maxLinks: p.maxLinks })),
                 outPorts: n.outPorts.map((p) => ({ id: p.id, name: p.name, type: p.type, maxLinks: p.maxLinks })),
@@ -806,6 +813,7 @@ export class Diagram {
                 map.set(sn.id, nid);
                 const id = this.addDiagramNode({
                     id: nid, typeId: sn.typeId, name: sn.name, color: sn.color, border: sn.border,
+                    openAction: sn.openAction,
                     x: sn.x + 28, y: sn.y + 28,
                     inPorts: sn.inPorts.map((p) => ({ ...p })),
                     outPorts: sn.outPorts.map((p) => ({ ...p })),
@@ -1065,7 +1073,19 @@ export class Diagram {
             this.canvas.style.cursor = 'default';
             this.scheduleDraw();
         });
-        this.canvas.addEventListener('dblclick', () => this.zoomToFit());
+        this.canvas.addEventListener('dblclick', (e) => {
+            const [sx, sy] = localXY(e);
+            const [wx, wy] = this.toWorld(sx, sy);
+            const node = this.nodeAt(wx, wy);
+            if (node !== null) {
+                if (node.openAction.length > 0) {
+                    e.preventDefault();
+                    this.emit('nodeOpen', { node });
+                }
+                return;
+            }
+            this.zoomToFit();
+        });
         // Desktop right-click → same contextMenu event as touch long-press.
         this.canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();

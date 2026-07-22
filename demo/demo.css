@@ -101,6 +101,35 @@ button, input { font: inherit; }
     color: var(--t-accent-text);
 }
 
+.indicator-dialog {
+    width: min(420px, calc(100vw - 32px));
+    padding: 0;
+    border: 1px solid var(--t-border);
+    border-radius: 10px;
+    background: var(--t-panel);
+    color: var(--t-text);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, .45);
+}
+
+.indicator-dialog::backdrop { background: rgba(3, 7, 18, .68); }
+.indicator-dialog form { padding: 22px; }
+.indicator-dialog h2 { margin: 4px 0 8px; color: var(--t-text-bright); font-size: 19px; }
+.indicator-dialog p { margin: 0 0 20px; color: var(--t-text-dim); font-size: 11px; }
+.indicator-dialog code { color: var(--t-accent); }
+.dialog-kicker { color: var(--t-accent); font-size: 10px; font-weight: 700; letter-spacing: .8px; }
+.dialog-field { display: grid; gap: 7px; color: var(--t-text-dim); font-size: 11px; }
+.dialog-field input {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--t-border);
+    border-radius: 6px;
+    outline: none;
+    background: var(--t-bg);
+    color: var(--t-text-bright);
+}
+.dialog-field input:focus { border-color: var(--t-accent); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+
 .diagram-workspace {
     display: grid;
     grid-template-columns: 245px minmax(0, 1fr);

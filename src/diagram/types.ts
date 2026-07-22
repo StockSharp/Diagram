@@ -108,7 +108,8 @@ export interface NodeInit {
     outPorts?: Array<Port | PortInit>;
     icon?: string;
     parameters?: ParamSchema[];
-    /// Double-click handler name from PaletteElementDto.openAction.
+    /// Non-empty host action enables double-click tracking for this node type.
+    /// The component emits nodeOpen; the host decides what the action means.
     openAction?: string;
 }
 
@@ -207,6 +208,7 @@ export class DiagramNode extends Node {
             color: this.color,
             border: this.border,
             message: this.message,
+            openAction: this.openAction,
             isPlaceholder: this.isPlaceholder,
             paramValues: { ...this.paramValues },
             parameters: this.parameters.map((p) => ({ ...p, options: [...p.options] })),
@@ -280,8 +282,8 @@ export interface NodeData {
     /// the persisted blob.
     isPlaceholder?: boolean;
     loc: string;
-    /// Double-click handler — copied from palette so the diagram can react
-    /// without re-resolving the catalog on every event.
+    /// Non-empty double-click action copied from the catalog. The action is
+    /// interpreted by the host application through the nodeOpen event.
     openAction?: string;
     /// Per-element parameter schema snapshot (sourced from the palette at
     /// drop/load time). Lives on the diagram model so the Properties panel

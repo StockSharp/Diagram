@@ -770,7 +770,9 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
                     this.emit('nodeHover', { node: this.dataToDiagramNode(node.data as NodeData), hovering: false });
                 },
                 doubleClick: (_e: unknown, node: go.Node) => {
-                    this.emit('nodeOpen', { nodes: [this.dataToDiagramNode(node.data as NodeData)] });
+                    const data = node.data as NodeData;
+                    if ((data.openAction ?? '').length === 0) return;
+                    this.emit('nodeOpen', { nodes: [this.dataToDiagramNode(data)] });
                 },
             },
             new go.Binding('location', 'loc', go.Point.parse).makeTwoWay(go.Point.stringify),

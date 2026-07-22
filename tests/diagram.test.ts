@@ -10,6 +10,7 @@ class FakeCanvas {
     height = 0;
     removed = false;
     fillStyles: string[] = [];
+    private readonly listeners = new Map<string, Array<EventListenerOrEventListenerObject>>();
 
     private readonly context = new Proxy({
         measureText: (text: string) => ({ width: text.length * 7 }),
@@ -30,7 +31,18 @@ class FakeCanvas {
     getContext(): CanvasRenderingContext2D {
         return this.context as unknown as CanvasRenderingContext2D;
     }
-    addEventListener(): void {}
+    addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+        const handlers = this.listeners.get(type) ?? [];
+        handlers.push(listener);
+        this.listeners.set(type, handlers);
+    }
+    dispatch(type: string, init: Record<string, unknown>): void {
+        const event = { type, preventDefault: () => undefined, ...init } as unknown as Event;
+        for (const listener of this.listeners.get(type) ?? []) {
+            if (typeof listener === 'function') listener(event);
+            else listener.handleEvent(event);
+        }
+    }
     getBoundingClientRect(): DOMRect {
         return { left: 0, top: 0, right: 800, bottom: 480, width: 800, height: 480, x: 0, y: 0, toJSON: () => ({}) };
     }
@@ -166,6 +178,30 @@ test('overview derives a light palette from the canvas theme', () => {
     assert.ok(host.canvas?.fillStyles.includes('rgba(217,119,6,0.10)'));
 });
 
+test('double-click is emitted only for nodes with an open action', () => {
+    const { diagram, host } = makeDiagram();
+    diagram.load([
+        { ...source, id: 'open', openAction: 'indicatorSettings' },
+        { ...sink, id: 'plain' },
+    ], []);
+    const opened: string[] = [];
+    diagram.on('nodeOpen', ({ node }) => opened.push(node.id));
+
+    const internals = diagram as unknown as {
+        findNode(id: string): { x: number; y: number; w: number; h: number } | undefined;
+        toScreen(x: number, y: number): [number, number];
+    };
+    const open = internals.findNode('open')!;
+    const [openX, openY] = internals.toScreen(open.x + open.w / 2, open.y + open.h / 2);
+    host.canvas!.dispatch('dblclick', { clientX: openX, clientY: openY });
+
+    const plain = internals.findNode('plain')!;
+    const [plainX, plainY] = internals.toScreen(plain.x + plain.w / 2, plain.y + plain.h / 2);
+    host.canvas!.dispatch('dblclick', { clientX: plainX, clientY: plainY });
+
+    assert.deepEqual(opened, ['open']);
+});
+
 test('legacy adapter publishes window.go and exposes a working selection count', async () => {
     installDom();
     const { default: go } = await import('../src/ssdiagram');
@@ -220,4 +256,43 @@ test('complete StockSharpDiagram API loads through the repaired model bridge', a
     assert.equal(diagram.save().nodes[0].name, 'High-level source');
     const canvas = diagram.goDiagram.ss as unknown as { save(): { nodes: unknown[] } };
     assert.equal(canvas.save().nodes.length, 1);
+});
+
+test('high-level host receives opt-in nodeOpen', async () => {
+    installDom();
+    const {
+        DiagramNode,
+        Node,
+        StockSharpCatalog,
+        StockSharpDiagram,
+    } = await import('../src/index');
+
+    const catalog = new StockSharpCatalog();
+    catalog.addNodeType(new Node({
+        id: 'indicator',
+        name: 'Indicator',
+        openAction: 'indicatorSettings',
+    }));
+    const host = new FakeHost();
+    const diagram = new StockSharpDiagram({ div: host as unknown as HTMLElement, catalog });
+    diagram.load([new DiagramNode({
+        id: 'indicator-1',
+        typeId: 'indicator',
+        name: 'SMA (20)',
+        openAction: 'indicatorSettings',
+        x: 50,
+        y: 50,
+    })], []);
+
+    const ss = diagram.goDiagram.ss as unknown as {
+        findNode(id: string): { id: string; x: number; y: number; w: number; h: number } | undefined;
+        toScreen(x: number, y: number): [number, number];
+    };
+    const node = ss.findNode('indicator-1')!;
+
+    const opened: string[] = [];
+    diagram.on('nodeOpen', ({ nodes }) => opened.push(nodes[0].openAction));
+    const [hitX, hitY] = ss.toScreen(node.x + node.w / 2, node.y + node.h / 2);
+    host.canvas!.dispatch('dblclick', { clientX: hitX, clientY: hitY });
+    assert.deepEqual(opened, ['indicatorSettings']);
 });

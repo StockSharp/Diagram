@@ -40,7 +40,7 @@
         <span>BTC/USDT · 1m</span>
       </div>
       <div id="diagram" aria-label="Interactive StockSharp strategy diagram"></div>
-      <div class="canvas-help">Drag nodes · connect matching sockets · wheel to zoom · double-click to fit</div>
+      <div class="canvas-help">Double-click an indicator to edit · double-click empty space to fit</div>
     </section>
   </main>
 
@@ -50,6 +50,22 @@
     <span class="spacer"></span>
     <span>StockSharpDiagram + ssdiagram + ssgraph</span>
   </footer>
+
+  <dialog id="indicatorDialog" class="indicator-dialog">
+    <form id="indicatorForm" method="dialog">
+      <div class="dialog-kicker">INDICATOR</div>
+      <h2 id="indicatorTitle">Indicator settings</h2>
+      <p>Opened by the host after receiving the node's <code>nodeOpen</code> event.</p>
+      <label class="dialog-field">
+        <span>Period</span>
+        <input id="indicatorPeriod" type="number" min="1" max="1000" step="1" required>
+      </label>
+      <div class="dialog-actions">
+        <button class="tbtn" type="button" id="indicatorCancelBtn">Cancel</button>
+        <button class="tbtn primary" type="submit">Apply</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="../dist/demo.js"></script>
 </body>
