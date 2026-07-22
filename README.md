@@ -162,6 +162,32 @@ Use `{ kind: 'load' }` with `setNodeError` to add a load-style error after the
 initial load. Errors applied through this API are transient and are not written
 by `save()`.
 
+### Debugger state
+
+Execution state is deliberately separate from the saved scheme and undo
+history. The host can mark the active element, publish socket values and
+breakpoints, or cover an unusable scheme with a global status:
+
+```ts
+diagram.setActiveNode('indicator_2');
+diagram.setPortRuntimeState('indicator_2', 'out', 'value', {
+  breakpoint: true,
+  breakpointActive: true,
+  value: '102.45',
+});
+diagram.setGlobalError('This strategy is encrypted.', 'encrypted');
+```
+
+Use `setRuntimeState()` for an atomic debugger snapshot and
+`clearRuntimeState()` when execution stops. `runtimeStateChanged` always
+returns a detached snapshot safe for host-side state stores.
+
+If `loadDocument()` receives malformed JSON or an unsupported document, the
+currently displayed scheme is left intact, a global `load` overlay shows the
+failure, and `documentLoadFailed` is emitted. The original exception is still
+thrown so callers can log or report it; loading a valid document clears the
+overlay.
+
 ## Source-first consumption
 
 Applications can let their own esbuild/Vite build compile this repository's

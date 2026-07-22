@@ -71,6 +71,23 @@ export function createDiagramRuntimeState(): DiagramRuntimeState {
     return { activeNodeId: null, nodes: {}, globalError: null };
 }
 
+export function cloneDiagramRuntimeState(state: DiagramRuntimeState): DiagramRuntimeState {
+    return {
+        activeNodeId: state.activeNodeId,
+        globalError: state.globalError === null ? null : { ...state.globalError },
+        nodes: Object.fromEntries(Object.entries(state.nodes).map(([nodeId, node]) => [nodeId, {
+            active: node.active,
+            error: node.error === null ? null : { ...node.error },
+            ports: {
+                in: Object.fromEntries(Object.entries(node.ports.in)
+                    .map(([portId, port]) => [portId, { ...port }])),
+                out: Object.fromEntries(Object.entries(node.ports.out)
+                    .map(([portId, port]) => [portId, { ...port }])),
+            },
+        }])),
+    };
+}
+
 export function createDiagramViewState(): DiagramViewState {
     return { zoom: 1, panX: 0, panY: 0, overviewVisible: true };
 }

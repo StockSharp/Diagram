@@ -18,11 +18,18 @@ import type {
     JsonValue,
 } from './core/model.js';
 import type {
+    DiagramGlobalErrorKind,
     DiagramInteractionPermissions,
+    DiagramPortRuntimeState,
+    DiagramRuntimeState,
     DiagramSelection,
     DiagramViewState,
 } from './core/state.js';
 import {
+    cloneDiagramRuntimeState,
+    createDiagramNodeRuntimeState,
+    createDiagramPortRuntimeState,
+    createDiagramRuntimeState,
     createEditableDiagramPermissions,
     createReadOnlyDiagramPermissions,
 } from './core/state.js';
@@ -193,6 +200,7 @@ export interface DiagramEvents {
     // enable/disable Undo/Redo toolbar buttons live.
     undoStackChanged: { canUndo: boolean; canRedo: boolean };
     selectionChanged: DiagramSelection;
+    runtimeStateChanged: { state: DiagramRuntimeState };
 }
 // One reversible operation. `do` re-applies it (redo), `undo` reverses
 // it. Both must be idempotent w.r.t. repeated undo/redo. label is for
@@ -432,6 +440,9 @@ export class Diagram {
     private idSeq = 1;
     private linkSeq = 1;
     private documentMetadata: JsonObject = {};
+    private runtimeState: DiagramRuntimeState = createDiagramRuntimeState();
+    private runtimePulse = 0;
+    private globalErrorFlashStart: number | null = null;
 
     // viewport transform: screen = world * scale + offset
     private scale = 1;
@@ -856,8 +867,11 @@ export class Diagram {
         this.nodes = []; this.links = [];
         this.selectedNode = null; this.selectedNodes.clear(); this.selectedLink = null; this.selectedPort = null;
         this.documentMetadata = {};
+        this.runtimeState = createDiagramRuntimeState();
+        this.runtimePulse = 0;
+        this.globalErrorFlashStart = null;
         this.history.clear();
-        this.scheduleDraw();
+        this.emitRuntimeStateChanged();
     }
     relink(
         linkId: string,
@@ -1087,6 +1101,13 @@ export class Diagram {
             const model = new LinkModel(link.from, link.fromPort, link.to, link.toPort, id, link.metadata);
             if (!this.links.some((existing) => existing.key() === model.key())) this.links.push(model);
         }
+        for (const node of this.nodes) {
+            if (node.loadError.length === 0) continue;
+            const state = createDiagramNodeRuntimeState();
+            state.error = { kind: 'load', message: node.loadError, pulse: ++this.runtimePulse };
+            this.runtimeState.nodes[node.id] = state;
+        }
+        if (Object.keys(this.runtimeState.nodes).length > 0) this.emitRuntimeStateChanged();
         this.history.clear();
         this.emit('loadFinished', { nodes: this.nodes.slice(), links: this.links.slice() });
         this.zoomToFit();
@@ -1177,6 +1198,73 @@ export class Diagram {
     // private fields with `as unknown` from outside.
     findNode(id: string): NodeModel | undefined { return this.nodes.find((n) => n.id === id); }
     requestRedraw(): void { this.relayout(); this.scheduleDraw(); }
+    getRuntimeState(): DiagramRuntimeState {
+        return cloneDiagramRuntimeState(this.runtimeState);
+    }
+    setRuntimeState(state: DiagramRuntimeState): void {
+        const previous = this.runtimeState;
+        this.runtimeState = cloneDiagramRuntimeState(state);
+        if (this.runtimeState.globalError === null) {
+            this.globalErrorFlashStart = null;
+        } else if (previous.globalError?.pulse !== this.runtimeState.globalError.pulse) {
+            this.globalErrorFlashStart = performance.now();
+        }
+        this.runtimePulse = Math.max(
+            this.runtimePulse,
+            this.runtimeState.globalError?.pulse ?? 0,
+            ...Object.values(this.runtimeState.nodes).map((node) => node.error?.pulse ?? 0),
+        );
+        for (const node of this.nodes) {
+            const error = this.runtimeState.nodes[node.id]?.error ?? null;
+            const previousError = previous.nodes[node.id]?.error ?? null;
+            node.runtimeError = error?.kind === 'runtime' ? error.message : '';
+            node.loadError = error?.kind === 'load' ? error.message : '';
+            if (error?.kind === 'runtime') {
+                if (previousError?.kind !== 'runtime' || previousError.pulse !== error.pulse) {
+                    node.errorFlashStart = performance.now();
+                }
+            } else {
+                node.errorFlashStart = null;
+            }
+        }
+        this.emitRuntimeStateChanged();
+    }
+    clearRuntimeState(): void {
+        this.setRuntimeState(createDiagramRuntimeState());
+    }
+    setActiveNode(nodeId: string | null): boolean {
+        if (nodeId !== null && this.findNode(nodeId) === undefined) return false;
+        const state = this.getRuntimeState();
+        state.activeNodeId = nodeId;
+        this.setRuntimeState(state);
+        return true;
+    }
+    setPortRuntimeState(
+        nodeId: string,
+        direction: PortDirection,
+        portId: string,
+        patch: Partial<DiagramPortRuntimeState>,
+    ): boolean {
+        const node = this.findNode(nodeId);
+        const port = direction === 'in'
+            ? node?.inPorts.find((candidate) => candidate.id === portId)
+            : node?.outPorts.find((candidate) => candidate.id === portId);
+        if (node === undefined || port === undefined) return false;
+        const state = this.getRuntimeState();
+        const nodeState = state.nodes[nodeId] ?? createDiagramNodeRuntimeState();
+        state.nodes[nodeId] = nodeState;
+        const current = nodeState.ports[direction][portId] ?? createDiagramPortRuntimeState();
+        nodeState.ports[direction][portId] = { ...current, ...patch };
+        this.setRuntimeState(state);
+        return true;
+    }
+    setGlobalError(message: string | null, kind: DiagramGlobalErrorKind = 'invalid'): void {
+        const state = this.getRuntimeState();
+        state.globalError = message === null || message.length === 0
+            ? null
+            : { kind, message, pulse: ++this.runtimePulse };
+        this.setRuntimeState(state);
+    }
     setNodeError(id: string, message: string, options: NodeErrorOptions = {}): boolean {
         const node = this.findNode(id);
         if (node === undefined) return false;
@@ -1189,7 +1277,12 @@ export class Diagram {
                 ? performance.now()
                 : null;
         }
-        this.scheduleDraw();
+        const state = this.getRuntimeState();
+        const nodeState = state.nodes[id] ?? createDiagramNodeRuntimeState();
+        state.nodes[id] = nodeState;
+        nodeState.error = message.length === 0 ? null : { kind, message, pulse: ++this.runtimePulse };
+        this.runtimeState = state;
+        this.emitRuntimeStateChanged();
         return true;
     }
     clearNodeError(id: string, kind?: NodeErrorKind): boolean {
@@ -1200,8 +1293,22 @@ export class Diagram {
             node.errorFlashStart = null;
         }
         if (kind === undefined || kind === 'load') node.loadError = '';
-        this.scheduleDraw();
+        const state = this.getRuntimeState();
+        const nodeState = state.nodes[id];
+        if (nodeState !== undefined && (kind === undefined || nodeState.error?.kind === kind)) {
+            nodeState.error = node.runtimeError.length > 0
+                ? { kind: 'runtime', message: node.runtimeError, pulse: ++this.runtimePulse }
+                : node.loadError.length > 0
+                    ? { kind: 'load', message: node.loadError, pulse: ++this.runtimePulse }
+                    : null;
+        }
+        this.runtimeState = state;
+        this.emitRuntimeStateChanged();
         return true;
+    }
+    private emitRuntimeStateChanged(): void {
+        this.emit('runtimeStateChanged', { state: this.getRuntimeState() });
+        this.scheduleDraw();
     }
     viewToWorld(sx: number, sy: number): [number, number] { return this.toWorld(sx, sy); }
     selectNodeById(id: string | null): void {
@@ -2138,9 +2245,52 @@ export class Diagram {
         }
         ctx.restore();
         this.drawOverview();
+        this.drawGlobalError();
         this.drawTooltip();
-        if (this.introStart !== null || this.nodes.some((n) => n.errorFlashStart !== null))
+        if (this.introStart !== null || this.globalErrorFlashStart !== null
+            || this.nodes.some((n) => n.errorFlashStart !== null))
             this.scheduleDraw();   // keep entrance / error feedback animating
+    }
+    private drawGlobalError(): void {
+        const error = this.runtimeState.globalError;
+        if (error === null) return;
+        const ctx = this.ctx;
+        let flashAlpha = 1;
+        if (this.globalErrorFlashStart !== null) {
+            const elapsed = performance.now() - this.globalErrorFlashStart;
+            if (elapsed >= ERROR_FLASH_MS) {
+                this.globalErrorFlashStart = null;
+            } else {
+                flashAlpha = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(
+                    elapsed / ERROR_FLASH_MS * Math.PI * 6 - Math.PI / 2));
+            }
+        }
+        const neutral = error.kind === 'locked' || error.kind === 'encrypted';
+        ctx.save();
+        ctx.globalAlpha = flashAlpha;
+        ctx.fillStyle = neutral ? 'rgba(18,20,26,0.82)' : 'rgba(55,16,22,0.78)';
+        ctx.fillRect(0, 0, this.width, this.height);
+        ctx.font = '600 15px Segoe UI, Tahoma, sans-serif';
+        const lines = this.wrapTooltip(error.message, Math.max(120, Math.min(520, this.width - 80)));
+        const lineHeight = 21;
+        const boxWidth = Math.min(this.width - 32,
+            Math.max(180, ...lines.map((line) => ctx.measureText(line).width + 36)));
+        const boxHeight = lines.length * lineHeight + 32;
+        const x = (this.width - boxWidth) / 2;
+        const y = (this.height - boxHeight) / 2;
+        roundRect(ctx, x, y, boxWidth, boxHeight, 8);
+        ctx.fillStyle = neutral ? 'rgba(36,39,48,0.98)' : 'rgba(75,22,31,0.98)';
+        ctx.fill();
+        ctx.strokeStyle = neutral ? '#858b98' : ERROR_RED;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        lines.forEach((line, index) => {
+            ctx.fillText(line, this.width / 2, y + 16 + lineHeight * index + lineHeight / 2);
+        });
+        ctx.restore();
     }
     private drawTooltip(): void {
         if (!this.tipShow) return;   // wait out the hover delay
@@ -2150,6 +2300,12 @@ export class Diagram {
         if (this.hoverPort !== null) {
             const p = this.hoverPort.port;
             text = p.type ? `${p.name}  ·  ${p.type}` : p.name;
+            const runtime = this.portRuntimeState(this.hoverPort.node, p);
+            if (runtime?.value !== null && runtime?.value !== undefined) text += `\nValue: ${runtime.value}`;
+            if (runtime?.error !== null && runtime?.error !== undefined) {
+                text += `\n${runtime.error}`;
+                isError = true;
+            }
         } else if (this.hoverNode !== null) {
             const n = this.hoverNode;
             const errors = [n.runtimeError, n.loadError].filter((value) => value.length > 0);
@@ -2234,8 +2390,10 @@ export class Diagram {
         const ctx = this.ctx;
         const hasLoadError = n.loadError.length > 0;
         const hasRuntimeError = n.runtimeError.length > 0;
+        const runtime = this.runtimeState.nodes[n.id];
+        const active = this.runtimeState.activeNodeId === n.id || runtime?.active === true;
         roundRect(ctx, n.x, n.y, n.w, n.h, 6);
-        ctx.fillStyle = hasLoadError ? ERROR_BACKGROUND : n.color;
+        ctx.fillStyle = hasLoadError ? ERROR_BACKGROUND : active ? '#ffd1dc' : n.color;
         ctx.fill();
         ctx.lineWidth = selected ? 2 : 1.5;
         ctx.strokeStyle = selected ? '#4aa3ff' : n.border;
@@ -2274,13 +2432,14 @@ export class Diagram {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(n.name, n.x + titleShift + (n.w - titleShift) / 2, n.y + n.h / 2, n.w - titleShift - 14);
-        for (const p of n.inPorts) this.drawPort(p);
-        for (const p of n.outPorts) this.drawPort(p);
+        for (const p of n.inPorts) this.drawPort(n, p);
+        for (const p of n.outPorts) this.drawPort(n, p);
     }
-    private drawPort(p: PortModel): void {
+    private drawPort(node: NodeModel, p: PortModel): void {
         const ctx = this.ctx;
         const hovered = this.hoverPort?.port === p;
         const magnet = this.linkSnap?.port === p;
+        const runtime = this.portRuntimeState(node, p);
         const s = magnet ? PORT_SQ + 4 : hovered ? PORT_SQ + 2 : PORT_SQ;
         const x = p.cx - s / 2;
         const y = p.cy - s / 2;
@@ -2298,6 +2457,31 @@ export class Diagram {
         ctx.lineWidth = magnet ? 1.5 : 1;
         ctx.strokeStyle = magnet ? '#ffffff' : 'rgba(12,12,16,0.55)';
         ctx.stroke();
+        const runtimeSelected = runtime?.selected === true || this.selectedPort?.port === p;
+        const breakpoint = runtime?.breakpoint === true;
+        const breakpointActive = runtime?.breakpointActive === true;
+        const runtimeActive = runtime?.active === true;
+        const hasError = runtime?.error !== null && runtime?.error !== undefined;
+        if (runtimeSelected || breakpoint || breakpointActive || runtimeActive || hasError) {
+            ctx.beginPath();
+            ctx.arc(p.cx, p.cy, s / 2 + 4, 0, Math.PI * 2);
+            if (breakpointActive) {
+                ctx.fillStyle = '#8b0000';
+                ctx.fill();
+            } else if (runtimeSelected) {
+                ctx.fillStyle = 'rgba(211,211,211,0.56)';
+                ctx.fill();
+            }
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = hasError || breakpointActive ? ERROR_RED
+                : breakpoint ? '#ffb6c1'
+                    : runtimeActive ? '#ffffff'
+                        : '#d3d3d3';
+            ctx.stroke();
+        }
+    }
+    private portRuntimeState(node: NodeModel, port: PortModel): DiagramPortRuntimeState | null {
+        return this.runtimeState.nodes[node.id]?.ports[port.direction][port.id] ?? null;
     }
     // Symmetric jump-over: any segment of THIS link hops the perpendicular
     // segments of links drawn before it (H over earlier V, V over earlier

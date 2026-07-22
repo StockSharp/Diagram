@@ -729,6 +729,66 @@ test('socket clicks expose mouse actions without starting links on right-click',
     }]);
 });
 
+test('runtime debugger state renders without entering document history', () => {
+    const { diagram, host } = makeDiagram();
+    diagram.load([source], []);
+    const before = diagram.saveDocument();
+    const node = diagram.findNode('source')!;
+    const port = node.outPorts[0];
+    const events: string[] = [];
+    diagram.on('runtimeStateChanged', ({ state }) => {
+        events.push(state.activeNodeId ?? state.globalError?.kind ?? 'idle');
+    });
+
+    assert.equal(diagram.setActiveNode('source'), true);
+    assert.equal(diagram.setActiveNode('missing'), false);
+    assert.equal(diagram.setPortRuntimeState('source', 'out', 'out', {
+        active: true,
+        selected: true,
+        breakpoint: true,
+        breakpointActive: true,
+        value: '42.5',
+        error: 'Socket calculation failed.',
+    }), true);
+    assert.equal(diagram.setPortRuntimeState('source', 'out', 'missing', { active: true }), false);
+    diagram.setGlobalError('The strategy is encrypted.', 'encrypted');
+
+    const snapshot = diagram.getRuntimeState();
+    assert.equal(snapshot.activeNodeId, 'source');
+    assert.equal(snapshot.nodes.source.ports.out.out.value, '42.5');
+    assert.equal(snapshot.globalError?.kind, 'encrypted');
+    snapshot.nodes.source.ports.out.out.value = 'mutated outside';
+    assert.equal(diagram.getRuntimeState().nodes.source.ports.out.out.value, '42.5');
+    assert.deepEqual(diagram.saveDocument(), before);
+    assert.equal(diagram.canUndo(), false);
+
+    const internals = diagram as unknown as {
+        draw(): void;
+        drawTooltip(): void;
+        drawGlobalError(): void;
+        hoverPort: { node: typeof node; port: typeof port } | null;
+        tipShow: boolean;
+        cursor: { x: number; y: number };
+    };
+    internals.draw();
+    assert.ok(host.canvas!.fillStyles.includes('#ffd1dc'));
+    assert.ok(host.canvas!.strokeStyles.includes('#f6465d'));
+    assert.ok(host.canvas!.drawnText.includes('The strategy is encrypted.'));
+
+    diagram.setGlobalError(null);
+    internals.hoverPort = { node, port };
+    internals.tipShow = true;
+    internals.cursor = { x: 30, y: 30 };
+    internals.drawTooltip();
+    assert.ok(host.canvas!.drawnText.includes('Value: 42.5'));
+    assert.ok(host.canvas!.drawnText.includes('Socket calculation failed.'));
+    assert.ok(events.length >= 3);
+
+    diagram.clearRuntimeState();
+    assert.deepEqual(diagram.getRuntimeState(), { activeNodeId: null, nodes: {}, globalError: null });
+    assert.deepEqual(diagram.saveDocument(), before);
+});
+
 test('runtime errors flash the border and expose tooltip text', () => {
     const { diagram, host } = makeDiagram();
     diagram.load([{ ...source, id: 'failed' }], []);
@@ -1065,6 +1125,35 @@ test('high-level versioned document API preserves host metadata', async () => {
     assert.deepEqual(diagram.saveDocument(), document);
 });
 
+test('failed document load keeps the current scheme and exposes a global load error', async () => {
+    installDom();
+    const {
+        StockSharpCatalog,
+        StockSharpDiagram,
+        createDiagramDocument,
+    } = await import('../src/index');
+    const host = new FakeHost();
+    const diagram = new StockSharpDiagram({
+        div: host as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+    });
+    const valid = createDiagramDocument({ nodes: [{ id: 'safe', name: 'Safe scheme' }] });
+    diagram.loadDocument(valid);
+    const before = diagram.saveDocument();
+    const failures: string[] = [];
+    diagram.on('documentLoadFailed', ({ message }) => failures.push(message));
+
+    assert.throws(() => diagram.loadDocument('{ broken json'), /JSON/i);
+    assert.deepEqual(diagram.saveDocument(), before);
+    assert.equal(diagram.getRuntimeState().globalError?.kind, 'load');
+    assert.equal(failures.length, 1);
+    (diagram.renderer as unknown as { draw(): void }).draw();
+    assert.ok(host.canvas!.drawnText.some((text) => /JSON/i.test(text)));
+
+    diagram.loadDocument(valid);
+    assert.equal(diagram.getRuntimeState().globalError, null);
+});
+
 test('high-level host receives opt-in nodeOpen', async () => {
     installDom();
     const {
@@ -1122,6 +1211,7 @@ test('high-level host can apply and clear runtime node errors', async () => {
         name: 'Order Builder',
         x: 50,
         y: 50,
+        outPorts: [{ id: 'orders', name: 'Orders', type: 'Order' }],
     })], []);
 
     const canvas = diagram.renderer as unknown as {
@@ -1129,8 +1219,20 @@ test('high-level host can apply and clear runtime node errors', async () => {
     };
     assert.equal(diagram.setNodeError('failed', 'Calculation failed.'), true);
     assert.equal(canvas.findNode('failed')?.runtimeError, 'Calculation failed.');
+    let runtimeEvents = 0;
+    diagram.on('runtimeStateChanged', () => { runtimeEvents += 1; });
+    assert.equal(diagram.setActiveNode('failed'), true);
+    assert.equal(diagram.setPortRuntimeState('failed', 'out', 'orders', {
+        breakpoint: true, value: 'Buy 1',
+    }), true);
+    diagram.setGlobalError('Debugger paused.', 'locked');
+    assert.equal(diagram.getRuntimeState().nodes.failed.ports.out.orders.value, 'Buy 1');
+    assert.equal(diagram.getRuntimeState().globalError?.kind, 'locked');
+    assert.ok(runtimeEvents >= 3);
     assert.equal(diagram.clearNodeError('failed'), true);
     assert.equal(canvas.findNode('failed')?.runtimeError, '');
+    diagram.clearRuntimeState();
+    assert.deepEqual(diagram.getRuntimeState(), { activeNodeId: null, nodes: {}, globalError: null });
 });
 
 test('high-level load errors remain transient', async () => {

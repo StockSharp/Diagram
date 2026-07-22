@@ -1,5 +1,9 @@
 import type { DiagramDocument } from '../core/model.js';
-import type { DiagramSelection, DiagramViewState } from '../core/state.js';
+import type {
+    DiagramRuntimeState,
+    DiagramSelection,
+    DiagramViewState,
+} from '../core/state.js';
 import type { DiagramNode, Link, Port, PortDirection } from './types.js';
 
 export interface DiagramOptions {
@@ -46,6 +50,11 @@ export interface NodeErrorOptions {
 export interface DiagramLoadOptions {
     /** Transient per-node errors discovered while restoring a scheme. */
     nodeErrors?: Readonly<Record<string, string>>;
+}
+
+export interface DocumentLoadFailedPayload {
+    message: string;
+    error: Error;
 }
 
 export type ContextCommand = 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'open' | 'delete' | 'properties' | 'help';
@@ -180,6 +189,8 @@ export interface DiagramEvents extends Record<string, unknown> {
     nodeHelp: NodeChangePayload;
     zoomChanged: DiagramViewState;
     selectionChanged: DiagramSelection;
+    runtimeStateChanged: { state: DiagramRuntimeState };
     undoStackChanged: { canUndo: boolean; canRedo: boolean };
     documentLoaded: { document: DiagramDocument };
+    documentLoadFailed: DocumentLoadFailedPayload;
 }

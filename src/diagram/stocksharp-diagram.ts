@@ -5,7 +5,10 @@ import {
 import type { DiagramDocument } from '../core/model.js';
 import { DiagramActionRegistry } from '../core/action-registry.js';
 import type {
+    DiagramGlobalErrorKind,
     DiagramInteractionPermissions,
+    DiagramPortRuntimeState,
+    DiagramRuntimeState,
     DiagramSelection,
     DiagramViewState,
 } from '../core/state.js';
@@ -223,6 +226,35 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         return this.canvas.clearNodeError(nodeId, kind);
     }
 
+    getRuntimeState(): DiagramRuntimeState {
+        return this.canvas.getRuntimeState();
+    }
+
+    setRuntimeState(state: DiagramRuntimeState): void {
+        this.canvas.setRuntimeState(state);
+    }
+
+    clearRuntimeState(): void {
+        this.canvas.clearRuntimeState();
+    }
+
+    setActiveNode(nodeId: string | null): boolean {
+        return this.canvas.setActiveNode(nodeId);
+    }
+
+    setPortRuntimeState(
+        nodeId: string,
+        direction: PortDirection,
+        portId: string,
+        patch: Partial<DiagramPortRuntimeState>,
+    ): boolean {
+        return this.canvas.setPortRuntimeState(nodeId, direction, portId, patch);
+    }
+
+    setGlobalError(message: string | null, kind: DiagramGlobalErrorKind = 'invalid'): void {
+        this.canvas.setGlobalError(message, kind);
+    }
+
     setNodeParamValue(nodeId: string, paramName: string, value: string | undefined): void {
         this.canvas.setNodeParamValue(nodeId, paramName, value);
     }
@@ -399,6 +431,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         } finally {
             this.loading = false;
         }
+        this.emit('runtimeStateChanged', { state: this.canvas.getRuntimeState() });
     }
 
     load(nodes: DiagramNode[], links: Link[], options: DiagramLoadOptions = {}): void {
@@ -411,6 +444,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         } finally {
             this.loading = false;
         }
+        this.emit('runtimeStateChanged', { state: this.canvas.getRuntimeState() });
         const snapshot = this.save();
         this.emit('loadFinished', snapshot);
     }
@@ -424,14 +458,23 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     }
 
     loadDocument(document: DiagramDocument | string, options: DiagramLoadOptions = {}): void {
+        let failure: Error | null = null;
         this.loading = true;
         try {
             this.canvas.loadDocument(document);
             for (const [nodeId, message] of Object.entries(options.nodeErrors ?? {})) {
                 this.canvas.setNodeError(nodeId, message, { kind: 'load', animate: false });
             }
+        } catch (error) {
+            failure = error instanceof Error ? error : new Error(String(error));
+            this.canvas.setGlobalError(failure.message, 'load');
         } finally {
             this.loading = false;
+        }
+        this.emit('runtimeStateChanged', { state: this.canvas.getRuntimeState() });
+        if (failure !== null) {
+            this.emit('documentLoadFailed', { message: failure.message, error: failure });
+            throw failure;
         }
         const saved = this.canvas.saveDocument();
         this.emit('documentLoaded', { document: saved });
@@ -483,6 +526,9 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
                 if (link !== null) this.emit('linkSelected', { link: this.fromCanvasLink(link), selected });
             }),
             this.canvas.on('selectionChanged', (selection) => this.emit('selectionChanged', selection)),
+            this.canvas.on('runtimeStateChanged', ({ state }) => {
+                if (!this.loading) this.emit('runtimeStateChanged', { state });
+            }),
             this.canvas.on('nodeHover', ({ node, hovering }) => {
                 this.emit('nodeHover', { node: this.fromCanvasNode(node), hovering });
             }),

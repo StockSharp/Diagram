@@ -10,6 +10,7 @@ import {
 } from '../src/core/document';
 import { DIAGRAM_DOCUMENT_VERSION, type JsonObject } from '../src/core/model';
 import {
+    cloneDiagramRuntimeState,
     createDiagramNodeRuntimeState,
     createDiagramPortRuntimeState,
     createDiagramRuntimeState,
@@ -159,4 +160,10 @@ test('runtime, view and selection state have independent fresh defaults', () => 
         panY: 0,
         overviewVisible: true,
     });
+
+    const cloned = cloneDiagramRuntimeState(runtimeA);
+    cloned.nodes.node.active = false;
+    cloned.nodes.node.ports.out.value.value = 'changed';
+    assert.equal(runtimeA.nodes.node.active, true);
+    assert.equal(runtimeA.nodes.node.ports.out.value.value, null);
 });
