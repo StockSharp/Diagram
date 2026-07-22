@@ -153,10 +153,18 @@ export type {
 } from './diagram/types.js';
 
 export {
+    destroyRenderedDiagram,
     renderAll,
     renderFromInline,
     renderFromSource,
     renderScheme,
+} from './embed.js';
+
+export type {
+    DiagramEmbedHandle,
+    DiagramEmbedScheme,
+    DiagramEmbedSchemeLink,
+    DiagramEmbedSchemeNode,
 } from './embed.js';
 
 // Low-level canvas engine. New application code normally uses

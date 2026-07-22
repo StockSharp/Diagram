@@ -140,6 +140,15 @@ scheme without moving or resizing the visible editor. Export options control
 padding, background, grid, overview, selection and transient runtime state;
 encode the returned canvas with `toBlob()` or `toDataURL()`.
 
+The Docs/Portal helpers return a `DiagramEmbedHandle`. Re-rendering the same
+host disposes its previous canvas, observers and timers; removing the host from
+the DOM also disposes it automatically. Custom integrations can call
+`handle.destroy()` or `destroyRenderedDiagram(host)` explicitly.
+If a saved scheme references an element absent from the current palette, its
+node is rendered as a transient red placeholder whose hover tooltip names the
+missing type. Sites can localize that message through
+`data-diagram-missing-element="Missing: {typeId}"` on the host.
+
 ### Node actions and errors
 
 Double-click handling is opt-in. Give only the node types controlled by the
