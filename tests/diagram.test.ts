@@ -629,6 +629,69 @@ test('context command registry executes built-ins and leaves host actions typed'
     assert.equal(readOnlyStates.get('paste'), false);
 });
 
+test('system clipboard transfers a lossless document and pastes as one transaction', async () => {
+    installDom();
+    const {
+        StockSharpCatalog,
+        StockSharpDiagram,
+        createDiagramDocument,
+        parseDiagramDocument,
+    } = await import('../src/index');
+    let clipboardText = '';
+    const clipboard = {
+        readText: async () => clipboardText,
+        writeText: async (value: string) => { clipboardText = value; },
+    };
+    const sourceHost = new FakeHost();
+    const sourceDiagram = new StockSharpDiagram({
+        div: sourceHost as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+        clipboard,
+    });
+    sourceDiagram.loadDocument(createDiagramDocument({
+        nodes: [{
+            id: 'source',
+            name: 'Source',
+            outPorts: [{ id: 'out', name: 'Out', metadata: { hostPortId: 1 } }],
+            paramValues: { Period: '20' },
+            metadata: { hostNodeId: 2 },
+        }, {
+            id: 'sink',
+            name: 'Sink',
+            inPorts: [{ id: 'in', name: 'In' }],
+        }],
+        links: [{
+            id: 'original-link',
+            from: { nodeId: 'source', portId: 'out' },
+            to: { nodeId: 'sink', portId: 'in' },
+            metadata: { hostLinkId: 3 },
+        }],
+    }));
+    sourceDiagram.selectNodes(['source', 'sink']);
+    assert.equal(await sourceDiagram.copySelectionToClipboard(), true);
+    assert.equal(parseDiagramDocument(clipboardText).nodes.length, 2);
+
+    const targetHost = new FakeHost();
+    const targetDiagram = new StockSharpDiagram({
+        div: targetHost as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+        clipboard,
+    });
+    assert.equal(await targetDiagram.pasteSelectionFromClipboard(), true);
+
+    const pasted = targetDiagram.saveDocument();
+    assert.equal(pasted.nodes.length, 2);
+    assert.equal(pasted.links.length, 1);
+    assert.deepEqual(pasted.nodes[0].metadata, { hostNodeId: 2 });
+    assert.deepEqual(pasted.nodes[0].outPorts[0].metadata, { hostPortId: 1 });
+    assert.deepEqual(pasted.nodes[0].paramValues, { Period: '20' });
+    assert.deepEqual(pasted.links[0].metadata, { hostLinkId: 3 });
+
+    targetDiagram.undo();
+    assert.equal(targetDiagram.saveDocument().nodes.length, 0);
+    assert.equal(targetDiagram.saveDocument().links.length, 0);
+});
+
 test('high-level versioned document API preserves host metadata', async () => {
     installDom();
     const {

@@ -1,3 +1,7 @@
+import {
+    parseDiagramDocument,
+    serializeDiagramDocument,
+} from '../core/document.js';
 import type { DiagramDocument } from '../core/model.js';
 import { DiagramActionRegistry } from '../core/action-registry.js';
 import type {
@@ -18,6 +22,7 @@ import { StockSharpCatalog } from './catalog.js';
 import { EventEmitter } from './event-emitter.js';
 import type {
     DiagramEvents,
+    DiagramClipboard,
     ContextCommand,
     DiagramLoadOptions,
     DiagramOptions,
@@ -46,6 +51,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     private readonly overviewContainer: HTMLElement | null;
     private readonly zoomLabel: HTMLElement | null;
     private readonly canvas: CanvasDiagram;
+    private readonly clipboard: DiagramClipboard | null;
     private readonly disposables: Array<() => void> = [];
     private idCounter = 1;
     private undoEnabled = true;
@@ -62,6 +68,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         this.catalog = options.catalog;
         this.overviewContainer = options.overviewContainer ?? null;
         this.zoomLabel = options.zoomLabel ?? null;
+        this.clipboard = this.resolveClipboard(options.clipboard);
         this.canvas = new CanvasDiagram({
             host: this.div,
             typeColors: this.portTypeColors(),
@@ -318,6 +325,34 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     cutSelection(): void { this.canvas.cutSelection(); }
     copySelection(): void { this.canvas.copySelection(); }
     pasteSelection(): void { this.canvas.pasteSelection(); }
+
+    async copySelectionToClipboard(): Promise<boolean> {
+        const document = this.canvas.copySelectionDocument();
+        if (document === null) return false;
+        if (this.clipboard !== null) {
+            try {
+                await this.clipboard.writeText(serializeDiagramDocument(document));
+            } catch {
+                // The in-memory document remains available as a safe fallback.
+            }
+        }
+        return true;
+    }
+
+    async pasteSelectionFromClipboard(): Promise<boolean> {
+        if (!this.canvas.getInteractionPermissions().paste) return false;
+        if (this.clipboard !== null) {
+            try {
+                const text = await this.clipboard.readText();
+                const document = parseDiagramDocument(text);
+                return this.canvas.pasteDocument(document).length > 0;
+            } catch {
+                // Fall through to the component's last valid in-memory copy.
+            }
+        }
+        const fallback = this.canvas.getClipboardDocument();
+        return fallback !== null && this.canvas.pasteDocument(fallback).length > 0;
+    }
 
     getContextCommands(): Array<{ command: ContextCommand; enabled: boolean }> {
         return this.contextActions.states(this.contextActionContext()).map(({ id, enabled }) => ({
@@ -644,6 +679,15 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
 
     private updateZoomLabel(): void {
         if (this.zoomLabel !== null) this.zoomLabel.textContent = `${Math.round(this.canvas.getViewState().zoom * 100)}%`;
+    }
+
+    private resolveClipboard(explicit: DiagramClipboard | null | undefined): DiagramClipboard | null {
+        if (explicit !== undefined) return explicit;
+        if (typeof navigator === 'undefined' || navigator.clipboard === undefined) return null;
+        return {
+            readText: () => navigator.clipboard.readText(),
+            writeText: (value) => navigator.clipboard.writeText(value),
+        };
     }
 
     private generateNodeId(prefix: string): string {

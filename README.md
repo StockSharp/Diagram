@@ -104,6 +104,11 @@ selected, copied and opened through host actions, while move/link/delete,
 paste and history commands are disabled. Applications that need a different
 policy can use `setInteractionPermissions()`.
 
+`copySelectionToClipboard()` and `pasteSelectionFromClipboard()` use the
+browser text clipboard when available and fall back to the last in-memory
+copy. The versioned payload preserves node, port and link metadata and pastes
+the complete selection as one undo transaction.
+
 ### Node actions and errors
 
 Double-click handling is opt-in. Give only the node types controlled by the

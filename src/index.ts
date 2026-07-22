@@ -73,6 +73,7 @@ export type {
     ContextCommandState,
     ContextMenuRequestedPayload,
     DiagramEvents,
+    DiagramClipboard,
     DiagramLoadOptions,
     DiagramOptions,
     DiagramThemeOptions,

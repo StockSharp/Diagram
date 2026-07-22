@@ -8,6 +8,13 @@ export interface DiagramOptions {
     overviewDiv?: HTMLElement | null;
     overviewContainer?: HTMLElement | null;
     zoomLabel?: HTMLElement | null;
+    /** Optional system clipboard adapter. Pass null to force memory-only clipboard. */
+    clipboard?: DiagramClipboard | null;
+}
+
+export interface DiagramClipboard {
+    readText(): Promise<string>;
+    writeText(value: string): Promise<void>;
 }
 
 export interface DiagramThemeOptions {

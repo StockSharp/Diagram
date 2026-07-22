@@ -1254,37 +1254,54 @@ export class Diagram {
     }
     // ---- clipboard (copy / paste of the selection) ------------------
     copySelection(): void {
-        if (!this.permissions.copy) return;
-        if (this.selectedNodes.size === 0) { this.clip = null; return; }
+        this.copySelectionDocument();
+    }
+    copySelectionDocument(): DiagramDocument | null {
+        if (!this.permissions.copy) return null;
+        if (this.selectedNodes.size === 0) { this.clip = null; return null; }
         const ids = new Set([...this.selectedNodes].map((n) => n.id));
         const all = this.saveDocument();
         this.clip = createDiagramDocument({
             nodes: all.nodes.filter((n) => ids.has(n.id)),
             links: all.links.filter((link) => ids.has(link.from.nodeId) && ids.has(link.to.nodeId)),
         });
+        return parseDiagramDocument(this.clip);
     }
     hasClipboard(): boolean {
         return this.clip !== null && this.clip.nodes.length > 0;
     }
-    pasteSelection(): void {
-        if (!this.permissions.paste) return;
-        if (this.clip === null || this.clip.nodes.length === 0) return;
+    getClipboardDocument(): DiagramDocument | null {
+        return this.clip === null ? null : parseDiagramDocument(this.clip);
+    }
+    setClipboardDocument(source: DiagramDocument | string): void {
+        this.clip = parseDiagramDocument(source);
+    }
+    pasteSelection(): string[] {
+        if (this.clip === null) return [];
+        return this.pasteDocument(this.clip);
+    }
+    pasteDocument(source: DiagramDocument | string, offset = { x: 28, y: 28 }): string[] {
+        if (!this.permissions.paste) return [];
+        const clipboard = parseDiagramDocument(source);
+        if (clipboard.nodes.length === 0) return [];
+        this.clip = clipboard;
         const map = new Map<string, string>();
         const added: NodeModel[] = [];
         // Paste of N nodes + M links collapses into ONE undo step.
         this.withTransaction('paste', () => {
-            for (const sn of this.clip!.nodes) {
+            for (const sn of clipboard.nodes) {
                 const nid = this.nextNodeId();
                 map.set(sn.id, nid);
                 const id = this.addDiagramNode({
                     ...sn,
                     id: nid,
-                    x: sn.x + 28, y: sn.y + 28,
+                    x: sn.x + offset.x,
+                    y: sn.y + offset.y,
                 });
                 const nn = this.nodes.find((x) => x.id === id);
                 if (nn !== undefined) added.push(nn);
             }
-            for (const l of this.clip!.links) {
+            for (const l of clipboard.links) {
                 const f = map.get(l.from.nodeId);
                 const t = map.get(l.to.nodeId);
                 if (f !== undefined && t !== undefined)
@@ -1298,6 +1315,7 @@ export class Diagram {
             }
         });
         this.setSelection(added);
+        return added.map((node) => node.id);
     }
 
     // ---- input ------------------------------------------------------
