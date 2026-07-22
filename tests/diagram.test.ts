@@ -360,6 +360,122 @@ test('selected link endpoint can be dragged to another compatible port', () => {
     assert.equal(diagram.saveDocument().links[0].to.nodeId, 'sink-a');
 });
 
+test('dynamic input anchors grow typed siblings and prune them with the link', () => {
+    const { diagram } = makeDiagram();
+    diagram.load([{
+        id: 'source-a', name: 'Source A',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Decimal' }],
+    }, {
+        id: 'source-b', name: 'Source B',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Decimal' }],
+    }, {
+        id: 'target', name: 'Target',
+        inPorts: [{
+            id: 'values', name: 'Value', type: 'Number', availableTypes: ['Decimal'],
+            isDynamic: true, dynamicMode: 'onConnect', metadata: { socketKind: 'variadic' },
+        }],
+    }], []);
+
+    assert.equal(diagram.addLink({
+        id: 'dynamic-1', from: 'source-a', fromPort: 'out', to: 'target', toPort: 'values',
+        metadata: { hostLinkId: 1 },
+    }), true);
+    let document = diagram.saveDocument();
+    let target = document.nodes.find((node) => node.id === 'target')!;
+    assert.deepEqual(target.inPorts.map((port) => port.id), ['values', 'values_1']);
+    assert.deepEqual(target.inPorts[1], {
+        id: 'values_1',
+        name: 'Value 1',
+        description: '',
+        type: 'Decimal',
+        maxLinks: 1,
+        availableTypes: ['Decimal'],
+        isDynamic: false,
+        dynamicMode: '',
+        isSibling: true,
+        metadata: { socketKind: 'variadic' },
+    });
+    assert.equal(document.links[0].id, 'dynamic-1');
+    assert.equal(document.links[0].to.portId, 'values_1');
+    assert.deepEqual(document.links[0].metadata, { hostLinkId: 1 });
+
+    diagram.undo();
+    document = diagram.saveDocument();
+    assert.equal(document.links.length, 0);
+    assert.deepEqual(document.nodes.find((node) => node.id === 'target')!.inPorts.map((port) => port.id), ['values']);
+    diagram.redo();
+    assert.equal(diagram.saveDocument().links[0].to.portId, 'values_1');
+
+    assert.equal(diagram.addLink({
+        id: 'dynamic-2', from: 'source-b', fromPort: 'out', to: 'target', toPort: 'values',
+    }), true);
+    document = diagram.saveDocument();
+    assert.deepEqual(document.nodes.find((node) => node.id === 'target')!.inPorts.map((port) => port.id),
+        ['values', 'values_1', 'values_2']);
+    const first = document.links.find((link) => link.id === 'dynamic-1')!;
+    diagram.removeLink({
+        id: first.id,
+        from: first.from.nodeId,
+        fromPort: first.from.portId,
+        to: first.to.nodeId,
+        toPort: first.to.portId,
+    });
+    document = diagram.saveDocument();
+    assert.deepEqual(document.nodes.find((node) => node.id === 'target')!.inPorts.map((port) => port.id),
+        ['values', 'values_2']);
+    assert.deepEqual(document.links.map((link) => link.id), ['dynamic-2']);
+    diagram.undo();
+    assert.deepEqual(diagram.saveDocument().links.map((link) => link.id), ['dynamic-1', 'dynamic-2']);
+    assert.ok(diagram.saveDocument().nodes.find((node) => node.id === 'target')!.inPorts
+        .some((port) => port.id === 'values_1'));
+
+    diagram.removeDiagramNode('source-a');
+    document = diagram.saveDocument();
+    assert.deepEqual(document.links.map((link) => link.id), ['dynamic-2']);
+    assert.deepEqual(document.nodes.find((node) => node.id === 'target')!.inPorts.map((port) => port.id),
+        ['values', 'values_2']);
+    diagram.undo();
+    document = diagram.saveDocument();
+    assert.ok(document.nodes.some((node) => node.id === 'source-a'));
+    assert.deepEqual(document.links.map((link) => link.id), ['dynamic-1', 'dynamic-2']);
+    assert.deepEqual(document.nodes.find((node) => node.id === 'target')!.inPorts.map((port) => port.id),
+        ['values', 'values_1', 'values_2']);
+});
+
+test('relinking to and from a dynamic anchor owns the sibling lifecycle', () => {
+    const { diagram } = makeDiagram();
+    diagram.load([{
+        id: 'source', name: 'Source', outPorts: [{ id: 'out', name: 'Out', type: 'number' }],
+    }, {
+        id: 'regular', name: 'Regular', inPorts: [{ id: 'in', name: 'In', type: 'number' }],
+    }, {
+        id: 'dynamic', name: 'Dynamic', inPorts: [{
+            id: 'items', name: 'Item', type: 'number', isDynamic: true, dynamicMode: 'onConnect',
+        }],
+    }], [{ id: 'link', from: 'source', fromPort: 'out', to: 'regular', toPort: 'in' }]);
+
+    assert.deepEqual(diagram.relink('link', {
+        from: 'source', fromPort: 'out', to: 'dynamic', toPort: 'items',
+    }), { allowed: true, reason: 'allowed' });
+    assert.equal(diagram.saveDocument().links[0].to.portId, 'items_1');
+    assert.deepEqual(diagram.saveDocument().nodes.find((node) => node.id === 'dynamic')!.inPorts
+        .map((port) => port.id), ['items', 'items_1']);
+    diagram.undo();
+    assert.equal(diagram.saveDocument().links[0].to.nodeId, 'regular');
+    assert.deepEqual(diagram.saveDocument().nodes.find((node) => node.id === 'dynamic')!.inPorts
+        .map((port) => port.id), ['items']);
+    diagram.redo();
+
+    assert.deepEqual(diagram.relink('link', {
+        from: 'source', fromPort: 'out', to: 'regular', toPort: 'in',
+    }), { allowed: true, reason: 'allowed' });
+    assert.equal(diagram.saveDocument().links[0].to.nodeId, 'regular');
+    assert.deepEqual(diagram.saveDocument().nodes.find((node) => node.id === 'dynamic')!.inPorts
+        .map((port) => port.id), ['items']);
+    diagram.undo();
+    assert.equal(diagram.saveDocument().links[0].to.portId, 'items_1');
+});
+
 test('mutations participate in undo and redo', () => {
     const { diagram } = makeDiagram();
     diagram.load([source], []);

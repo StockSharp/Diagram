@@ -576,17 +576,38 @@ export class Diagram {
         // the node init AND every link that gets cascaded out, so undo
         // can rebuild them in one shot.
         const snapshot = node.toInit(false);
-        const cascaded = this.links.filter((l) => l.from === id || l.to === id)
-            .map((link) => link.toInit());
-        this.doRemoveNode(id);
-        this.record({
-            do:   () => { this.doRemoveNode(id); },
-            undo: () => {
-                this.doAddNode(snapshot);
-                for (const l of cascaded) this.doAddLink(l);
-            },
-            label: 'remove node',
-        });
+        const cascaded = this.links
+            .map((link, index) => ({ link, index }))
+            .filter(({ link }) => link.from === id || link.to === id)
+            .map(({ link, index }) => ({ init: link.toInit(), index }));
+        const siblingTargets: Array<{ nodeId: string; portId: string }> = [];
+        for (const { init } of cascaded) {
+            if (init.from !== id || init.to === id) continue;
+            const targetPort = this.findNode(init.to)?.inPorts.find((port) => port.id === init.toPort);
+            if (targetPort?.isSibling !== true) continue;
+            if (!siblingTargets.some((target) => target.nodeId === init.to && target.portId === init.toPort)) {
+                siblingTargets.push({ nodeId: init.to, portId: init.toPort });
+            }
+        }
+        const remove = (): void => {
+            this.doRemoveNode(id);
+            this.record({
+                do:   () => { this.doRemoveNode(id); },
+                undo: () => {
+                    this.doAddNode(snapshot);
+                    for (const { init, index } of cascaded) this.doAddLink(init, false, index);
+                },
+                label: 'remove node',
+            });
+        };
+        if (siblingTargets.length === 0) {
+            remove();
+        } else {
+            this.withTransaction('remove node', () => {
+                remove();
+                for (const target of siblingTargets) this.pruneDynamicSibling(target.nodeId, target.portId);
+            });
+        }
     }
     private doRemoveNode(id: string): void {
         const node = this.nodes.find((n) => n.id === id);
@@ -658,44 +679,94 @@ export class Diagram {
             id: init.id ?? this.nextLinkId(),
             metadata: copyJsonObject(init.metadata),
         };
-        const ok = this.doAddLink(fullInit);
+        if (fullInit.id !== undefined && this.links.some((link) => link.id === fullInit.id)) return false;
+        const fromNode = this.nodes.find((node) => node.id === fullInit.from);
+        const toNode = this.nodes.find((node) => node.id === fullInit.to);
+        const fromPort = fromNode?.outPorts.find((port) => port.id === fullInit.fromPort);
+        const toPort = toNode?.inPorts.find((port) => port.id === fullInit.toPort);
+        if (fromNode !== undefined && toNode !== undefined && fromPort !== undefined && toPort !== undefined
+            && toPort.isDynamic && toPort.dynamicMode === 'onConnect' && !toPort.isSibling) {
+            const validation = this.validateLinkModels(fromNode, fromPort, toNode, toPort);
+            this.emit('linkValidation', { fromNode, from: fromPort, toNode, to: toPort, ...validation });
+            if (!validation.allowed) return false;
+            const sibling = this.createDynamicSibling(toNode, toPort, fromPort);
+            let added = false;
+            const failed = new Error('ssgraph: dynamic link transaction failed');
+            try {
+                this.withTransaction('add dynamic link', () => {
+                    if (!this.addPort(toNode.id, 'in', sibling)) throw failed;
+                    added = this.addLinkApplied({ ...fullInit, toPort: sibling.id }, false);
+                    if (!added) throw failed;
+                });
+            } catch (error) {
+                if (error === failed) return false;
+                throw error;
+            }
+            return added;
+        }
+        return this.addLinkApplied(fullInit, true);
+    }
+    private addLinkApplied(init: LinkInit, validate: boolean): boolean {
+        const ok = this.doAddLink(init, validate);
         if (ok) {
             this.record({
-                do:   () => { this.doAddLink(fullInit); },
-                undo: () => { this.doRemoveLink(fullInit); },
+                do:   () => { this.doAddLink(init, false); },
+                undo: () => { this.doRemoveLink(init); },
                 label: 'add link',
             });
         }
         return ok;
     }
-    private doAddLink(init: LinkInit): boolean {
+    private doAddLink(init: LinkInit, validate = true, index = this.links.length): boolean {
         const fn = this.nodes.find((n) => n.id === init.from);
         const tn = this.nodes.find((n) => n.id === init.to);
         if (fn === undefined || tn === undefined) return false;
         const fp = fn.outPorts.find((p) => p.id === init.fromPort);
         const tp = tn.inPorts.find((p) => p.id === init.toPort);
         if (fp === undefined || tp === undefined) return false;
-        const validation = this.validateLinkModels(fn, fp, tn, tp);
-        this.emit('linkValidation', { fromNode: fn, from: fp, toNode: tn, to: tp, ...validation });
-        if (!validation.allowed) return false;
+        if (validate) {
+            const validation = this.validateLinkModels(fn, fp, tn, tp);
+            this.emit('linkValidation', { fromNode: fn, from: fp, toNode: tn, to: tp, ...validation });
+            if (!validation.allowed) return false;
+        }
         const link = new LinkModel(init.from, init.fromPort, init.to, init.toPort, init.id ?? this.nextLinkId(), init.metadata);
         if (this.links.some((l) => l.id === link.id)) return false;
-        this.links.push(link);
+        this.links.splice(clamp(Math.trunc(index), 0, this.links.length), 0, link);
         this.emit('linkAdded', { link });
         this.scheduleDraw();
         return true;
     }
-    removeLink(link: { from: string; fromPort: string; to: string; toPort: string }): void {
+    removeLink(link: { id?: string; from: string; fromPort: string; to: string; toPort: string }): void {
+        this.removeLinkInternal(link, true);
+    }
+    private removeLinkInternal(
+        link: { id?: string; from: string; fromPort: string; to: string; toPort: string },
+        pruneDynamicSibling: boolean,
+    ): void {
         const key = new LinkModel(link.from, link.fromPort, link.to, link.toPort).key();
-        const found = this.links.find((candidate) => candidate.key() === key);
+        const found = link.id === undefined || link.id.length === 0
+            ? this.links.find((candidate) => candidate.key() === key)
+            : this.links.find((candidate) => candidate.id === link.id);
         if (found === undefined) return;
         const init = found.toInit();
-        this.doRemoveLink(init);
-        this.record({
-            do:   () => { this.doRemoveLink(init); },
-            undo: () => { this.doAddLink(init); },
-            label: 'remove link',
-        });
+        const index = this.links.indexOf(found);
+        const targetPort = this.findNode(found.to)?.inPorts.find((port) => port.id === found.toPort);
+        const remove = (): void => {
+            this.doRemoveLink(init);
+            this.record({
+                do:   () => { this.doRemoveLink(init); },
+                undo: () => { this.doAddLink(init, false, index); },
+                label: 'remove link',
+            });
+        };
+        if (pruneDynamicSibling && targetPort?.isSibling === true) {
+            this.withTransaction('remove dynamic link', () => {
+                remove();
+                this.pruneDynamicSibling(init.to, init.toPort);
+            });
+        } else {
+            remove();
+        }
     }
     private doRemoveLink(link: { from: string; fromPort: string; to: string; toPort: string }): void {
         const k = new LinkModel(link.from, link.fromPort, link.to, link.toPort).key();
@@ -705,6 +776,29 @@ export class Diagram {
         if (this.selectedLink === found) this.selectLink(null);
         this.emit('linkRemoved', { link: found });
         this.scheduleDraw();
+    }
+    private createDynamicSibling(toNode: NodeModel, anchor: PortModel, source: PortModel): PortInit {
+        let sequence = 1;
+        while (toNode.inPorts.some((port) => port.id === `${anchor.id}_${sequence}`)) sequence += 1;
+        return {
+            id: `${anchor.id}_${sequence}`,
+            name: `${anchor.name} ${sequence}`,
+            description: anchor.description,
+            type: source.type || anchor.type,
+            maxLinks: 1,
+            availableTypes: [...anchor.availableTypes],
+            isDynamic: false,
+            dynamicMode: '',
+            isSibling: true,
+            metadata: copyJsonObject(anchor.metadata),
+        };
+    }
+    private pruneDynamicSibling(nodeId: string, portId: string): void {
+        const node = this.findNode(nodeId);
+        const port = node?.inPorts.find((candidate) => candidate.id === portId);
+        if (port?.isSibling !== true) return;
+        if (this.links.some((link) => link.to === nodeId && link.toPort === portId)) return;
+        this.removePort(nodeId, 'in', portId);
     }
     // ---- undo / redo public surface ---------------------------------
     canUndo(): boolean { return this.permissions.history && this.history.state.canUndo; }
@@ -769,13 +863,37 @@ export class Diagram {
         const before = link.toInit();
         if (before.from === next.from && before.fromPort === next.fromPort
             && before.to === next.to && before.toPort === next.toPort) return validation;
-        const after: LinkInit & { id: string } = { ...before, ...next };
-        this.doRelink(linkId, after);
-        this.record({
-            do: () => { this.doRelink(linkId, after); },
-            undo: () => { this.doRelink(linkId, before); },
-            label: 'relink',
-        });
+        const dynamicSibling = fromPort !== undefined && toNode !== undefined && toPort !== undefined
+            && toPort.isDynamic && toPort.dynamicMode === 'onConnect' && !toPort.isSibling
+            ? this.createDynamicSibling(toNode, toPort, fromPort)
+            : null;
+        const after: LinkInit & { id: string } = {
+            ...before,
+            ...next,
+            toPort: dynamicSibling?.id ?? next.toPort,
+        };
+        const oldTargetPort = this.findNode(before.to)?.inPorts.find((port) => port.id === before.toPort);
+        const apply = (): void => {
+            this.doRelink(linkId, after);
+            this.record({
+                do: () => { this.doRelink(linkId, after); },
+                undo: () => { this.doRelink(linkId, before); },
+                label: 'relink',
+            });
+        };
+        const pruneOldSibling = oldTargetPort?.isSibling === true
+            && (before.to !== after.to || before.toPort !== after.toPort);
+        if (dynamicSibling !== null || pruneOldSibling) {
+            this.withTransaction('relink dynamic link', () => {
+                if (dynamicSibling !== null && !this.addPort(after.to, 'in', dynamicSibling)) {
+                    throw new Error('ssgraph: could not create a dynamic sibling port');
+                }
+                apply();
+                if (pruneOldSibling) this.pruneDynamicSibling(before.to, before.toPort);
+            });
+        } else {
+            apply();
+        }
         return validation;
     }
     private doRelink(linkId: string, next: LinkInit & { id: string }): void {
@@ -811,7 +929,7 @@ export class Diagram {
             const affected = this.links.filter((link) => direction === 'in'
                 ? link.to === nodeId && link.toPort === portId
                 : link.from === nodeId && link.fromPort === portId);
-            for (const link of affected) this.removeLink(link);
+            for (const link of affected) this.removeLinkInternal(link, false);
             changed = this.updateNodeState(nodeId, 'remove port', (target) => {
                 if (direction === 'in') target.inPorts = target.inPorts.filter((port) => port.id !== portId);
                 else target.outPorts = target.outPorts.filter((port) => port.id !== portId);
@@ -844,7 +962,7 @@ export class Diagram {
             const invalid = this.links.filter((link) =>
                 (link.to === nodeId && !inputIds.has(link.toPort))
                 || (link.from === nodeId && !outputIds.has(link.fromPort)));
-            for (const link of invalid) this.removeLink(link);
+            for (const link of invalid) this.removeLinkInternal(link, false);
             changed = this.updateNodeState(nodeId, 'set node ports', (target) => {
                 target.inPorts = inPorts.map((port) => new PortModel(port, 'in'));
                 target.outPorts = outPorts.map((port) => new PortModel(port, 'out'));

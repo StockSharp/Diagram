@@ -114,6 +114,11 @@ Configure it at construction time with `gridSnap` / `gridSize`, or at runtime
 with `setGridSnap(enabled, size)`. Arrow keys move the current node selection
 by one grid cell (Shift moves five); the whole gesture is one undo step.
 
+Variadic input sockets use `isDynamic: true` with `dynamicMode: 'onConnect'`.
+Connecting to that anchor creates a single-link sibling typed from the source;
+disconnecting, relinking, or deleting the source prunes an orphan sibling. The
+port and wire lifecycle is one undoable transaction and round-trips unchanged.
+
 ### Node actions and errors
 
 Double-click handling is opt-in. Give only the node types controlled by the
