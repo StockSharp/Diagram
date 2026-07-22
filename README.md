@@ -42,6 +42,7 @@ src/
     document.ts            validation and serialization
     state.ts               runtime, view and selection state
     history.ts             commands, transactions, undo and redo
+    action-registry.ts     executable context and host actions
   diagram/
     stocksharp-diagram.ts  StockSharpDiagram API
     api.ts                 typed public events and options
@@ -164,6 +165,7 @@ Dedicated entry points are available for consumers with narrower needs:
 - `ssdiagram/document` - versioned document parser and serializer;
 - `ssdiagram/state` - runtime/view/selection state helpers;
 - `ssdiagram/history` - command and transaction history;
+- `ssdiagram/actions` - typed action registry;
 - `ssdiagram/ssgraph` — low-level canvas renderer;
 - `ssdiagram/embed` — compiled read-only web renderer;
 - `ssdiagram/legacy` — compatibility runtime only;

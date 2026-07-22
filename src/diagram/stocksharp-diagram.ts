@@ -1,4 +1,5 @@
 import type { DiagramDocument } from '../core/model.js';
+import { DiagramActionRegistry } from '../core/action-registry.js';
 import type {
     DiagramInteractionPermissions,
     DiagramSelection,
@@ -17,6 +18,7 @@ import { StockSharpCatalog } from './catalog.js';
 import { EventEmitter } from './event-emitter.js';
 import type {
     DiagramEvents,
+    ContextCommand,
     DiagramLoadOptions,
     DiagramOptions,
     DiagramThemeOptions,
@@ -32,6 +34,12 @@ import {
     type PortDirection,
 } from './types.js';
 
+interface ContextActionContext {
+    selection: DiagramSelection;
+    nodes: DiagramNode[];
+    links: Link[];
+}
+
 export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     private readonly div: HTMLElement;
     private readonly catalog: StockSharpCatalog;
@@ -46,6 +54,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     private loading = false;
     private destroyed = false;
     private linkValidator: LinkValidator | null = null;
+    private readonly contextActions = new DiagramActionRegistry<ContextCommand, ContextActionContext>();
 
     constructor(options: DiagramOptions) {
         super();
@@ -57,6 +66,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
             host: this.div,
             typeColors: this.portTypeColors(),
         });
+        this.registerContextActions();
         this.bindCanvasEvents();
         this.disposables.push(this.catalog.on('portTypesChanged', () => this.applySocketTheme()));
         this.updateZoomLabel();
@@ -309,6 +319,20 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     copySelection(): void { this.canvas.copySelection(); }
     pasteSelection(): void { this.canvas.pasteSelection(); }
 
+    getContextCommands(): Array<{ command: ContextCommand; enabled: boolean }> {
+        return this.contextActions.states(this.contextActionContext()).map(({ id, enabled }) => ({
+            command: id,
+            enabled,
+        }));
+    }
+
+    executeContextCommand(command: ContextCommand): boolean {
+        const context = this.contextActionContext();
+        if (!this.contextActions.execute(command, context)) return false;
+        this.emit('contextCommand', { command, nodes: context.nodes, links: context.links });
+        return true;
+    }
+
     clear(): void {
         this.loading = true;
         try {
@@ -432,7 +456,87 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
                 this.emit('zoomChanged', this.canvas.getViewState());
             }),
             this.canvas.on('undoStackChanged', (state) => this.emit('undoStackChanged', state)),
+            this.canvas.on('contextMenu', ({ x, y, node, link }) => {
+                this.emit('contextMenuRequested', {
+                    x,
+                    y,
+                    node: node === null ? null : this.fromCanvasNode(node),
+                    link: link === null ? null : this.fromCanvasLink(link),
+                    commands: this.getContextCommands(),
+                });
+            }),
         );
+    }
+
+    private registerContextActions(): void {
+        const permissions = () => this.canvas.getInteractionPermissions();
+        this.contextActions.register({
+            id: 'undo',
+            canExecute: () => this.canUndo(),
+            execute: () => this.undo(),
+        });
+        this.contextActions.register({
+            id: 'redo',
+            canExecute: () => this.canRedo(),
+            execute: () => this.redo(),
+        });
+        this.contextActions.register({
+            id: 'cut',
+            canExecute: ({ nodes }) => nodes.length > 0 && permissions().copy && permissions().deleteSelection,
+            execute: () => this.cutSelection(),
+        });
+        this.contextActions.register({
+            id: 'copy',
+            canExecute: ({ nodes }) => nodes.length > 0 && permissions().copy,
+            execute: () => this.copySelection(),
+        });
+        this.contextActions.register({
+            id: 'paste',
+            canExecute: () => this.canvas.hasClipboard() && permissions().paste,
+            execute: () => this.pasteSelection(),
+        });
+        this.contextActions.register({
+            id: 'open',
+            canExecute: ({ nodes }) => nodes.length === 1 && nodes[0].openAction.length > 0,
+            execute: ({ nodes }) => this.emit('nodeOpen', { nodes }),
+        });
+        this.contextActions.register({
+            id: 'delete',
+            canExecute: ({ selection }) => permissions().deleteSelection
+                && (selection.nodeIds.length > 0 || selection.linkIds.length > 0),
+            execute: () => this.canvas.deleteSelection(),
+        });
+        this.contextActions.register({
+            id: 'properties',
+            canExecute: ({ nodes }) => nodes.length > 0,
+            execute: ({ nodes }) => this.emit('nodeProperties', { nodes }),
+        });
+        this.contextActions.register({
+            id: 'help',
+            canExecute: ({ nodes }) => this.helpEnabled && nodes.length > 0,
+            execute: ({ nodes }) => this.emit('nodeHelp', { nodes }),
+        });
+    }
+
+    private contextActionContext(): ContextActionContext {
+        const selection = this.canvas.getSelection();
+        const document = this.canvas.saveDocument();
+        const nodeIds = new Set(selection.nodeIds);
+        const linkIds = new Set(selection.linkIds);
+        return {
+            selection,
+            nodes: document.nodes
+                .filter((node) => nodeIds.has(node.id))
+                .map((node) => this.fromCanvasInit(node)),
+            links: document.links
+                .filter((link) => linkIds.has(link.id))
+                .map((link) => new Link({
+                    outNode: link.from.nodeId,
+                    outPort: link.from.portId,
+                    inNode: link.to.nodeId,
+                    inPort: link.to.portId,
+                })),
+        };
     }
 
     private toCanvasNode(node: DiagramNode): CanvasNodeInit {

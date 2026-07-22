@@ -569,6 +569,66 @@ test('high-level persistent edits use canvas history without capturing runtime e
     assert.equal(diagram.renderer.findNode('node')?.runtimeError, 'Runtime failure');
 });
 
+test('context command registry executes built-ins and leaves host actions typed', async () => {
+    installDom();
+    const {
+        DiagramNode,
+        Link,
+        StockSharpCatalog,
+        StockSharpDiagram,
+    } = await import('../src/index');
+    const host = new FakeHost();
+    const diagram = new StockSharpDiagram({
+        div: host as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+    });
+    diagram.load([
+        new DiagramNode({
+            id: 'source',
+            name: 'Source',
+            openAction: 'settings',
+            outPorts: [{ id: 'out', name: 'Out' }],
+        }),
+        new DiagramNode({
+            id: 'sink',
+            name: 'Sink',
+            inPorts: [{ id: 'in', name: 'In' }],
+        }),
+    ], [new Link({ outNode: 'source', outPort: 'out', inNode: 'sink', inPort: 'in' })]);
+    diagram.selectNodes(['source']);
+
+    const states = new Map(diagram.getContextCommands().map(({ command, enabled }) => [command, enabled]));
+    assert.equal(states.get('copy'), true);
+    assert.equal(states.get('delete'), true);
+    assert.equal(states.get('open'), true);
+    assert.equal(states.get('paste'), false);
+
+    const executed: string[] = [];
+    const properties: string[] = [];
+    diagram.on('contextCommand', ({ command }) => executed.push(command));
+    diagram.on('nodeProperties', ({ nodes }) => properties.push(nodes[0].id));
+    assert.equal(diagram.executeContextCommand('copy'), true);
+    assert.equal(diagram.executeContextCommand('properties'), true);
+    assert.deepEqual(executed, ['copy', 'properties']);
+    assert.deepEqual(properties, ['source']);
+    assert.equal(new Map(diagram.getContextCommands().map(({ command, enabled }) => [command, enabled])).get('paste'), true);
+
+    const linkId = diagram.saveDocument().links[0].id;
+    diagram.selectLink(linkId);
+    assert.equal(diagram.executeContextCommand('delete'), true);
+    assert.equal(diagram.saveDocument().links.length, 0);
+    diagram.undo();
+    assert.equal(diagram.saveDocument().links[0].id, linkId);
+
+    diagram.setReadOnly(true);
+    diagram.selectNodes(['source']);
+    const readOnlyStates = new Map(diagram.getContextCommands().map(({ command, enabled }) => [command, enabled]));
+    assert.equal(readOnlyStates.get('copy'), true);
+    assert.equal(readOnlyStates.get('open'), true);
+    assert.equal(readOnlyStates.get('delete'), false);
+    assert.equal(readOnlyStates.get('paste'), false);
+});
+
 test('high-level versioned document API preserves host metadata', async () => {
     installDom();
     const {

@@ -45,6 +45,10 @@
       "types": "./dist/types/core/history.d.ts",
       "import": "./dist/esm/core/history.js"
     },
+    "./actions": {
+      "types": "./dist/types/core/action-registry.d.ts",
+      "import": "./dist/esm/core/action-registry.js"
+    },
     "./embed": {
       "types": "./dist/types/embed.d.ts",
       "import": "./dist/esm/embed.js"
@@ -62,6 +66,7 @@
     "./source/document": "./src/core/document.ts",
     "./source/state": "./src/core/state.ts",
     "./source/history": "./src/core/history.ts",
+    "./source/actions": "./src/core/action-registry.ts",
     "./source/embed": "./src/embed.ts",
     "./source/legacy": "./src/ssdiagram.ts"
   },

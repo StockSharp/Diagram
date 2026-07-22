@@ -1263,6 +1263,9 @@ export class Diagram {
             links: all.links.filter((link) => ids.has(link.from.nodeId) && ids.has(link.to.nodeId)),
         });
     }
+    hasClipboard(): boolean {
+        return this.clip !== null && this.clip.nodes.length > 0;
+    }
     pasteSelection(): void {
         if (!this.permissions.paste) return;
         if (this.clip === null || this.clip.nodes.length === 0) return;
@@ -1309,6 +1312,10 @@ export class Diagram {
         const [wx, wy] = this.toWorld(sx, sy);
         const node = this.nodeAt(wx, wy);
         const link = node === null ? this.linkAt(wx, wy) : null;
+        if (this.permissions.select) {
+            if (node !== null && !this.selectedNodes.has(node)) this.selectNode(node);
+            else if (link !== null && this.selectedLink !== link) this.selectLink(link);
+        }
         this.dragNode = null; this.dragStart = []; this.rubber = null;
         this.panning = false; this.linking = null; this.linkSnap = null;
         this.scheduleDraw();

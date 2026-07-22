@@ -40,6 +40,19 @@ export interface ContextCommandPayload {
     links: Link[];
 }
 
+export interface ContextCommandState {
+    command: ContextCommand;
+    enabled: boolean;
+}
+
+export interface ContextMenuRequestedPayload {
+    x: number;
+    y: number;
+    node: DiagramNode | null;
+    link: Link | null;
+    commands: ContextCommandState[];
+}
+
 export interface NodeSelectedPayload {
     node: DiagramNode;
     selected: boolean;
@@ -119,6 +132,7 @@ export interface DiagramEvents extends Record<string, unknown> {
     linkValidation: LinkValidationPayload;
     loadFinished: LoadFinishedPayload;
     contextCommand: ContextCommandPayload;
+    contextMenuRequested: ContextMenuRequestedPayload;
     undoRequested: NodeChangePayload & LinkChangePayload;
     redoRequested: NodeChangePayload & LinkChangePayload;
     nodeEdit: NodeChangePayload;

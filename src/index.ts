@@ -6,6 +6,12 @@ export {
     serializeDiagramDocument,
 } from './core/document.js';
 
+export { DiagramActionRegistry } from './core/action-registry.js';
+export type {
+    DiagramAction,
+    DiagramActionState,
+} from './core/action-registry.js';
+
 export { DiagramCommandHistory } from './core/history.js';
 export type {
     DiagramCommand,
@@ -64,6 +70,8 @@ export {
 export type {
     ContextCommand,
     ContextCommandPayload,
+    ContextCommandState,
+    ContextMenuRequestedPayload,
     DiagramEvents,
     DiagramLoadOptions,
     DiagramOptions,
