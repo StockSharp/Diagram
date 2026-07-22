@@ -273,6 +273,11 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         this.canvas.updateNode(nodeId, { name: value });
     }
 
+    /** Groups host-driven document edits into one undo/redo operation. */
+    transaction<T>(label: string, action: () => T): T {
+        return this.canvas.withTransaction(label, action);
+    }
+
     setShowNodeMessages(show: boolean): void {
         this.canvas.setShowNodeMessages(show);
     }

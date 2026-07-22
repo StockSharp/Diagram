@@ -260,15 +260,17 @@ indicatorForm.addEventListener('submit', (event) => {
     if (activeIndicator === null || !indicatorPeriod.reportValidity()) return;
     const period = indicatorPeriod.value;
     const baseName = activeIndicator.name.replace(/\s*\(\d+\)\s*$/, '');
-    diagram.setNodeParamValue(activeIndicator.id, 'Period', period);
-    diagram.setNodeName(activeIndicator.id, `${baseName} (${period})`);
-    diagram.updatePort(activeIndicator.id, 'in', 'source', {
-        type: indicatorInputType.value,
-        availableTypes: [],
-        maxLinks: indicatorInputMulti.checked ? 0 : 1,
-    });
-    diagram.updatePort(activeIndicator.id, 'out', 'value', {
-        maxLinks: indicatorOutputMulti.checked ? 0 : 1,
+    diagram.transaction('update indicator settings', () => {
+        diagram.setNodeParamValue(activeIndicator!.id, 'Period', period);
+        diagram.setNodeName(activeIndicator!.id, `${baseName} (${period})`);
+        diagram.updatePort(activeIndicator!.id, 'in', 'source', {
+            type: indicatorInputType.value,
+            availableTypes: [],
+            maxLinks: indicatorInputMulti.checked ? 0 : 1,
+        });
+        diagram.updatePort(activeIndicator!.id, 'out', 'value', {
+            maxLinks: indicatorOutputMulti.checked ? 0 : 1,
+        });
     });
     setStatus(`Updated ${baseName}: period ${period}, input ${indicatorInputType.value}, `
         + `fan-in ${indicatorInputMulti.checked ? 'multiple' : 'single'}, `

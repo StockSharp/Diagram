@@ -135,6 +135,10 @@ accepted types at runtime. Lowering a limit keeps existing wires and only
 rejects new ones. `Any`, `Object`, `System.Object` and `*` are wildcard socket
 types and therefore connect to every concrete type.
 
+Wrap a host properties form in `transaction(label, action)` when it changes
+several node or port fields. The edits are committed as one undo/redo operation;
+if the action throws, every edit made inside it is rolled back.
+
 Viewport preferences are deliberately separate from the strategy document.
 Persist `diagram.saveViewState()` in host settings and restore it with
 `diagram.loadViewState(value)`. The versioned snapshot contains zoom, pan and

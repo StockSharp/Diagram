@@ -907,8 +907,8 @@ export class Diagram {
     // Group multiple mutations into one undo step (paste of N nodes,
     // bulk delete, multi-drag, etc.). Re-entrant: nested calls flatten
     // into the outer batch.
-    withTransaction(label: string, fn: () => void): void {
-        this.history.transaction(label, fn);
+    withTransaction<T>(label: string, fn: () => T): T {
+        return this.history.transaction(label, fn);
     }
     private record(action: AppliedAction): void {
         this.history.recordApplied({

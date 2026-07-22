@@ -582,6 +582,8 @@ export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     setGlobalError(message: string | null, kind?: DiagramGlobalErrorKind): void;
     setNodeParamValue(nodeId: string, paramName: string, value: string | undefined): void;
     setNodeName(nodeId: string, value: string): void;
+    /** Groups host-driven document edits into one undo/redo operation. */
+    transaction<T>(label: string, action: () => T): T;
     setShowNodeMessages(show: boolean): void;
     setReadOnly(readonly: boolean): void;
     getInteractionPermissions(): DiagramInteractionPermissions;
@@ -1718,7 +1720,7 @@ export declare class Diagram {
     undo(): void;
     redo(): void;
     cutSelection(): void;
-    withTransaction(label: string, fn: () => void): void;
+    withTransaction<T>(label: string, fn: () => T): T;
     private record;
     deleteSelection(): void;
     clear(): void;

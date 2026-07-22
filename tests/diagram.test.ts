@@ -1222,6 +1222,45 @@ test('high-level persistent edits use canvas history without capturing runtime e
     assert.equal(diagram.renderer.findNode('node')?.runtimeError, 'Runtime failure');
 });
 
+test('high-level transaction groups property edits and rolls them back on failure', async () => {
+    installDom();
+    const {
+        DiagramNode,
+        StockSharpCatalog,
+        StockSharpDiagram,
+    } = await import('../src/index');
+    const host = new FakeHost();
+    const diagram = new StockSharpDiagram({
+        div: host as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+    });
+    diagram.load([new DiagramNode({ id: 'node', name: 'Node' })], []);
+
+    const result = diagram.transaction('update properties', () => {
+        diagram.setNodeName('node', 'Configured node');
+        diagram.setNodeParamValue('node', 'Period', '20');
+        return 42;
+    });
+    assert.equal(result, 42);
+    assert.equal(diagram.save().nodes[0].name, 'Configured node');
+    assert.deepEqual(diagram.save().nodes[0].paramValues, { Period: '20' });
+
+    diagram.undo();
+    assert.equal(diagram.save().nodes[0].name, 'Node');
+    assert.deepEqual(diagram.save().nodes[0].paramValues, {});
+    diagram.redo();
+    assert.equal(diagram.save().nodes[0].name, 'Configured node');
+    assert.deepEqual(diagram.save().nodes[0].paramValues, { Period: '20' });
+
+    assert.throws(() => diagram.transaction('broken properties', () => {
+        diagram.setNodeName('node', 'Half applied');
+        diagram.setNodeParamValue('node', 'Period', '50');
+        throw new Error('host validation failed');
+    }), /host validation failed/);
+    assert.equal(diagram.save().nodes[0].name, 'Configured node');
+    assert.deepEqual(diagram.save().nodes[0].paramValues, { Period: '20' });
+});
+
 test('context command registry executes built-ins and leaves host actions typed', async () => {
     installDom();
     const {
