@@ -108,6 +108,15 @@ const catalog = new StockSharpCatalog();
 const palette = new StockSharpPalette({ div: paletteHost, catalog });
 const diagram = new StockSharpDiagram({ div: diagramHost, catalog });
 
+palette.on('nodeActivated', ({ node: activated }) => {
+    const rect = diagramHost.getBoundingClientRect();
+    diagram.dropNodeFromPalette(activated.id, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    setStatus(`Added from palette: ${activated.name}`);
+});
+palette.on('contextMenuRequested', ({ node: requested }) => {
+    setStatus(requested.description.length > 0 ? requested.description : requested.name);
+});
+
 function node(typeId: string, id: string, name: string, x: number, y: number): DiagramNode {
     const type = catalog.getNodeType(typeId);
     if (type === null) throw new Error(`Unknown node type: ${typeId}`);

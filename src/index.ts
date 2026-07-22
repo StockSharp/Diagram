@@ -109,7 +109,13 @@ export {
     PALETTE_DRAG_MIME,
     StockSharpPalette,
 } from './diagram/palette.js';
-export type { PaletteOptions } from './diagram/palette.js';
+export type {
+    PaletteContextMenuPayload,
+    PaletteEvents,
+    PaletteNodePayload,
+    PaletteOptions,
+    PaletteSelectionChangedPayload,
+} from './diagram/palette.js';
 
 export {
     DiagramNode,

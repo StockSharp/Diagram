@@ -37,4 +37,8 @@ export class EventEmitter<TEvents extends Record<string, unknown>> {
             }
         }
     }
+
+    protected clearEventHandlers(): void {
+        this.handlers.clear();
+    }
 }

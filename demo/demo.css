@@ -238,6 +238,8 @@ button, input { font: inherit; }
 }
 
 .d-palette-item:hover { background: var(--t-hover); color: var(--t-text-bright); }
+.d-palette-item:focus-visible { outline: 2px solid var(--t-accent); outline-offset: -2px; }
+.d-palette-item.is-selected { background: color-mix(in srgb, var(--t-accent) 18%, transparent); color: var(--t-text-bright); }
 .d-palette-item.is-dragging { cursor: grabbing; opacity: .5; }
 .d-palette-icon { width: 17px; height: 17px; flex: none; object-fit: contain; }
 .d-palette-icon-placeholder { border-radius: 3px; background: var(--t-surface); }

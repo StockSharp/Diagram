@@ -99,6 +99,13 @@ diagram.setTheme({
 See `examples/basic.ts` for catalog construction, the draggable palette,
 typed links, history, read-only mode, resize handling and theme switching.
 
+The palette mirrors the Designer toolbox contract without owning host
+behaviour. Subscribe to `nodeActivated` to insert/open an element and to
+`contextMenuRequested` to show host-specific help. `setExcludedTypeIds()` and
+`setNodeTypeExcluded()` hide elements dynamically; selection, filtering,
+category expansion and catalog refreshes remain stable. Call `destroy()` when
+the palette host is disposed so its catalog subscription is released.
+
 Read-only mode remains inspectable: nodes, links and ports can still be
 selected, copied and opened through host actions, while move/link/delete,
 paste and history commands are disabled. Applications that need a different
