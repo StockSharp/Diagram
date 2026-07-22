@@ -90,6 +90,10 @@ export interface DiagramOptions {
     host: HTMLElement;
     background?: string;
     gridColor?: string;
+    /** Snap dragged nodes to a world-space grid. Defaults to false for the low-level renderer. */
+    gridSnap?: boolean;
+    /** Positive world-space grid step. Defaults to 28. */
+    gridSize?: number;
     /** Optional explicit socket-type → colour map; unknown types hash to a hue. */
     typeColors?: Record<string, string>;
     /** Ceiling (0..1) for link/socket colour lightness. Unset = full palette (tuned for a dark
@@ -356,6 +360,7 @@ const PORT_SQ = 9;           // socket square size — sits outside the node
 const LINK_STUB = 22;        // min horizontal lead-in/out before the elbow
 const LINK_HOP = 5;          // jump-over arc radius at crossings
 const SNAP_PX = 32;          // plug↔socket magnet radius (screen px)
+const DEFAULT_GRID_SIZE = 28;
 const ZOOM_MIN = 0.15;
 const ZOOM_MAX = 4;
 const INTRO_MS = 520;        // entrance animation duration
@@ -421,6 +426,8 @@ export class Diagram {
     private height = 0;
     private dpr = 1;
     private drawScheduled = false;
+    private gridSnapEnabled: boolean;
+    private gridSize: number;
 
     // interaction state
     private selectedNode: NodeModel | null = null;          // primary (last) selected
@@ -471,6 +478,8 @@ export class Diagram {
     constructor(opts: DiagramOptions) {
         this.opts = opts;
         this.host = opts.host;
+        this.gridSnapEnabled = opts.gridSnap ?? false;
+        this.gridSize = this.normalizeGridSize(opts.gridSize ?? DEFAULT_GRID_SIZE);
         this.history = new DiagramCommandHistory(({ canUndo, canRedo }) => {
             this.emit('undoStackChanged', { canUndo, canRedo });
         });
@@ -509,6 +518,20 @@ export class Diagram {
 
     // ---- public API (Layer-A-shaped) --------------------------------
     setLinkValidator(fn: LinkValidator | null): void { this.validator = fn; }
+    setGridSnap(enabled: boolean, size?: number): void {
+        const nextSize = size === undefined ? this.gridSize : this.normalizeGridSize(size);
+        this.gridSnapEnabled = enabled;
+        this.gridSize = nextSize;
+        this.scheduleDraw();
+    }
+    getGridSnap(): { enabled: boolean; size: number } {
+        return { enabled: this.gridSnapEnabled, size: this.gridSize };
+    }
+
+    private normalizeGridSize(size: number): number {
+        if (!Number.isFinite(size) || size <= 0) throw new RangeError('ssgraph: grid size must be a positive finite number');
+        return size;
+    }
 
     private nextNodeId(): string {
         let id: string;
@@ -602,6 +625,24 @@ export class Diagram {
                 label: 'move node',
             });
         }
+    }
+    nudgeSelection(dx: number, dy: number): boolean {
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new RangeError('ssgraph: nudge delta must be finite');
+        if ((dx === 0 && dy === 0) || this.selectedNodes.size === 0) return false;
+        const moves = [...this.selectedNodes].map((node) => ({
+            id: node.id,
+            fromX: node.x,
+            fromY: node.y,
+            toX: node.x + dx,
+            toY: node.y + dy,
+        }));
+        for (const move of moves) this.doMoveNode(move.id, move.toX, move.toY);
+        this.record({
+            do: () => { for (const move of moves) this.doMoveNode(move.id, move.toX, move.toY); },
+            undo: () => { for (const move of moves) this.doMoveNode(move.id, move.fromX, move.fromY); },
+            label: 'nudge',
+        });
+        return true;
     }
     private doMoveNode(id: string, x: number, y: number): void {
         const node = this.nodes.find((n) => n.id === id);
@@ -1405,10 +1446,11 @@ export class Diagram {
         if (this.clip === null) return [];
         return this.pasteDocument(this.clip);
     }
-    pasteDocument(source: DiagramDocument | string, offset = { x: 28, y: 28 }): string[] {
+    pasteDocument(source: DiagramDocument | string, offset?: { x: number; y: number }): string[] {
         if (!this.permissions.paste) return [];
         const clipboard = parseDiagramDocument(source);
         if (clipboard.nodes.length === 0) return [];
+        const pasteOffset = offset ?? { x: this.gridSize, y: this.gridSize };
         this.clip = clipboard;
         const map = new Map<string, string>();
         const added: NodeModel[] = [];
@@ -1420,8 +1462,8 @@ export class Diagram {
                 const id = this.addDiagramNode({
                     ...sn,
                     id: nid,
-                    x: sn.x + offset.x,
-                    y: sn.y + offset.y,
+                    x: sn.x + pasteOffset.x,
+                    y: sn.y + pasteOffset.y,
                 });
                 const nn = this.nodes.find((x) => x.id === id);
                 if (nn !== undefined) added.push(nn);
@@ -1588,8 +1630,15 @@ export class Diagram {
             if (this.ovDragging) { this.ovPanTo(sx, sy); return; }
             const [wx, wy] = this.toWorld(sx, sy);
             if (this.dragNode !== null) {
-                const ddx = wx - this.dragAnchor.wx;
-                const ddy = wy - this.dragAnchor.wy;
+                let ddx = wx - this.dragAnchor.wx;
+                let ddy = wy - this.dragAnchor.wy;
+                if (this.gridSnapEnabled) {
+                    const primary = this.dragStart.find((item) => item.n === this.dragNode);
+                    if (primary !== undefined) {
+                        ddx = Math.round((primary.x + ddx) / this.gridSize) * this.gridSize - primary.x;
+                        ddy = Math.round((primary.y + ddy) / this.gridSize) * this.gridSize - primary.y;
+                    }
+                }
                 for (const it of this.dragStart) {
                     it.n.x = it.x + ddx;
                     it.n.y = it.y + ddy;
@@ -1831,6 +1880,18 @@ export class Diagram {
         this.listen(this.canvas, 'touchend', endPinch);
         this.listen(this.canvas, 'touchcancel', endPinch);
         this.listen(this.canvas, 'keydown', (e) => {
+            if (this.permissions.moveNodes && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                const step = (this.gridSnapEnabled ? this.gridSize : 1) * (e.shiftKey ? 5 : 1);
+                const delta = e.key === 'ArrowLeft' ? [-step, 0]
+                    : e.key === 'ArrowRight' ? [step, 0]
+                    : e.key === 'ArrowUp' ? [0, -step]
+                    : e.key === 'ArrowDown' ? [0, step]
+                    : null;
+                if (delta !== null && this.nudgeSelection(delta[0], delta[1])) {
+                    e.preventDefault();
+                    return;
+                }
+            }
             if (this.permissions.deleteSelection && (e.key === 'Delete' || e.key === 'Backspace')) {
                 e.preventDefault(); this.deleteSelection(); return;
             }
@@ -1986,7 +2047,7 @@ export class Diagram {
     }
     private drawGrid(): void {
         const ctx = this.ctx;
-        const step = 28 * this.scale;
+        const step = this.gridSize * this.scale;
         if (step < 6) return;
         ctx.strokeStyle = this.opts.gridColor ?? '#26262c';
         ctx.lineWidth = 1;

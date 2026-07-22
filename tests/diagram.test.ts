@@ -379,6 +379,59 @@ test('mutations participate in undo and redo', () => {
     assert.ok(events.length >= 3);
 });
 
+test('grid snapping keeps a dragged group rigid and records one undo action', () => {
+    const { diagram, host, fakeWindow } = makeDiagram();
+    diagram.load([{
+        id: 'a', name: 'A', x: 13, y: 17,
+    }, {
+        id: 'b', name: 'B', x: 57, y: 65,
+    }], []);
+    diagram.setGridSnap(true, 10);
+    diagram.selectNodesById(['a', 'b']);
+
+    const renderer = diagram as unknown as {
+        findNode(id: string): { x: number; y: number; w: number; h: number } | undefined;
+        toScreen(x: number, y: number): [number, number];
+    };
+    const b = renderer.findNode('b')!;
+    const [startX, startY] = renderer.toScreen(b.x + b.w / 2, b.y + b.h / 2);
+    host.canvas!.dispatch('pointerdown', {
+        clientX: startX, clientY: startY, pointerId: 1, pointerType: 'mouse', button: 0,
+        shiftKey: false, ctrlKey: false, metaKey: false, altKey: false,
+    });
+    host.canvas!.dispatch('pointermove', { clientX: startX + 7, clientY: startY + 9 });
+    fakeWindow.dispatch('pointerup', { clientX: startX + 7, clientY: startY + 9, shiftKey: false });
+
+    assert.deepEqual(diagram.saveDocument().nodes.map(({ x, y }) => [x, y]), [[16, 22], [60, 70]]);
+    diagram.undo();
+    assert.deepEqual(diagram.saveDocument().nodes.map(({ x, y }) => [x, y]), [[13, 17], [57, 65]]);
+    diagram.redo();
+    assert.deepEqual(diagram.saveDocument().nodes.map(({ x, y }) => [x, y]), [[16, 22], [60, 70]]);
+});
+
+test('arrow keys nudge the selection using the configured grid step', () => {
+    const { diagram, host } = makeDiagram();
+    diagram.load([{ id: 'node', name: 'Node', x: 13, y: 17 }], []);
+    diagram.selectNodesById(['node']);
+    diagram.setGridSnap(true, 10);
+
+    host.canvas!.dispatch('keydown', { key: 'ArrowRight', shiftKey: false, ctrlKey: false, metaKey: false, altKey: false });
+    host.canvas!.dispatch('keydown', { key: 'ArrowDown', shiftKey: true, ctrlKey: false, metaKey: false, altKey: false });
+    assert.deepEqual([diagram.findNode('node')!.x, diagram.findNode('node')!.y], [23, 67]);
+    diagram.undo();
+    assert.deepEqual([diagram.findNode('node')!.x, diagram.findNode('node')!.y], [23, 17]);
+    diagram.undo();
+    assert.deepEqual([diagram.findNode('node')!.x, diagram.findNode('node')!.y], [13, 17]);
+
+    diagram.setGridSnap(false);
+    host.canvas!.dispatch('keydown', { key: 'ArrowLeft', shiftKey: false, ctrlKey: false, metaKey: false, altKey: false });
+    assert.equal(diagram.findNode('node')!.x, 12);
+    diagram.setReadOnly(true);
+    host.canvas!.dispatch('keydown', { key: 'ArrowLeft', shiftKey: false, ctrlKey: false, metaKey: false, altKey: false });
+    assert.equal(diagram.findNode('node')!.x, 12);
+    assert.throws(() => diagram.setGridSnap(true, 0), /grid size/);
+});
+
 test('port removal and cascaded links are one reversible transaction', () => {
     const { diagram } = makeDiagram();
     diagram.load([source, sink], [

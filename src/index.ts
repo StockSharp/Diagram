@@ -74,6 +74,7 @@ export type {
     ContextMenuRequestedPayload,
     DiagramEvents,
     DiagramClipboard,
+    DiagramGridSettings,
     DiagramLoadOptions,
     DiagramOptions,
     DiagramThemeOptions,

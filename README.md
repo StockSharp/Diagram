@@ -109,6 +109,11 @@ browser text clipboard when available and fall back to the last in-memory
 copy. The versioned payload preserves node, port and link metadata and pastes
 the complete selection as one undo transaction.
 
+Node dragging snaps to the visible grid by default in `StockSharpDiagram`.
+Configure it at construction time with `gridSnap` / `gridSize`, or at runtime
+with `setGridSnap(enabled, size)`. Arrow keys move the current node selection
+by one grid cell (Shift moves five); the whole gesture is one undo step.
+
 ### Node actions and errors
 
 Double-click handling is opt-in. Give only the node types controlled by the

@@ -10,6 +10,15 @@ export interface DiagramOptions {
     zoomLabel?: HTMLElement | null;
     /** Optional system clipboard adapter. Pass null to force memory-only clipboard. */
     clipboard?: DiagramClipboard | null;
+    /** Snap pointer-dragged nodes to the grid. Defaults to true. */
+    gridSnap?: boolean;
+    /** Positive world-space grid step. Defaults to 28. */
+    gridSize?: number;
+}
+
+export interface DiagramGridSettings {
+    enabled: boolean;
+    size: number;
 }
 
 export interface DiagramClipboard {

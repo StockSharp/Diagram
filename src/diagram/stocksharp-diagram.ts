@@ -26,6 +26,7 @@ import type {
     DiagramClipboard,
     ContextCommand,
     DiagramLoadOptions,
+    DiagramGridSettings,
     DiagramOptions,
     DiagramThemeOptions,
     LinkValidator,
@@ -73,6 +74,8 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         this.canvas = new CanvasDiagram({
             host: this.div,
             typeColors: this.portTypeColors(),
+            gridSnap: options.gridSnap ?? true,
+            gridSize: options.gridSize,
         });
         this.registerContextActions();
         this.bindCanvasEvents();
@@ -134,6 +137,18 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
 
     moveNode(nodeId: string, x: number, y: number): void {
         this.canvas.moveNode(nodeId, x, y);
+    }
+
+    setGridSnap(enabled: boolean, size?: number): void {
+        this.canvas.setGridSnap(enabled, size);
+    }
+
+    getGridSnap(): DiagramGridSettings {
+        return this.canvas.getGridSnap();
+    }
+
+    nudgeSelection(dx: number, dy: number): boolean {
+        return this.canvas.nudgeSelection(dx, dy);
     }
 
     addLink(link: Link): boolean {
