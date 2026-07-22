@@ -118,7 +118,6 @@ const palette = new StockSharpPalette({ div: paletteHost, catalog });
 const diagram = new StockSharpDiagram({
     div: diagramHost,
     catalog,
-    fullscreenElement: canvasPanel,
     showFullscreenButton: true,
 });
 (window as Window & { stockSharpDiagramDemo?: StockSharpDiagram }).stockSharpDiagramDemo = diagram;
@@ -242,8 +241,22 @@ diagram.on('linkValidation', ({ allowed, reason }) => {
     };
     setStatus(messages[reason] ?? `Rejected: ${reason}.`);
 });
-diagram.on('fullscreenChanged', ({ fullscreen }) => {
-    setStatus(fullscreen ? 'Diagram expanded to fullscreen.' : 'Diagram left fullscreen.');
+const setDiagramExpanded = (fullscreen: boolean): void => {
+    canvasPanel.classList.toggle('is-expanded', fullscreen);
+    document.body.classList.toggle('diagram-modal-open', fullscreen);
+    diagram.setFullscreenState(fullscreen);
+    requestAnimationFrame(() => {
+        diagram.resize(diagramHost.clientWidth, diagramHost.clientHeight);
+        diagram.zoomToFit();
+    });
+    setStatus(fullscreen ? 'Host expanded the diagram.' : 'Host restored the diagram.');
+};
+
+diagram.on('fullscreenRequested', ({ fullscreen }) => {
+    setDiagramExpanded(fullscreen);
+});
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && diagram.isFullscreen()) setDiagramExpanded(false);
 });
 diagram.on('nodeOpen', ({ nodes }) => {
     const selected = nodes[0];

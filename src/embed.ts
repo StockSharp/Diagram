@@ -10,6 +10,7 @@
 import { StockSharpDiagram } from './diagram/stocksharp-diagram.js';
 import { StockSharpCatalog } from './diagram/catalog.js';
 import { DiagramNode, Link, Node, Port, PortType } from './diagram/types.js';
+import type { FullscreenRequestedPayload } from './diagram/api.js';
 
 interface PalettePort {
 	key: string;
@@ -47,6 +48,14 @@ export interface DiagramEmbedHandle {
 	readonly diagram: StockSharpDiagram;
 	readonly destroyed: boolean;
 	destroy(): void;
+}
+
+export interface DiagramEmbedOptions {
+	onFullscreenRequested?: (
+		request: FullscreenRequestedPayload,
+		handle: DiagramEmbedHandle,
+	) => void;
+	onDestroyed?: (handle: DiagramEmbedHandle) => void;
 }
 
 const PALETTE_URL = '/data/designer-palette.json';
@@ -214,8 +223,9 @@ export async function renderScheme(
 	div: HTMLElement,
 	paletteUrl: string,
 	scheme: DiagramEmbedScheme,
+	options: DiagramEmbedOptions = {},
 ): Promise<DiagramEmbedHandle | null> {
-	return renderSchemeAtRevision(div, paletteUrl, scheme, beginRender(div));
+	return renderSchemeAtRevision(div, paletteUrl, scheme, beginRender(div), options);
 }
 
 async function renderSchemeAtRevision(
@@ -223,6 +233,7 @@ async function renderSchemeAtRevision(
 	paletteUrl: string,
 	scheme: DiagramEmbedScheme,
 	revision: number,
+	options: DiagramEmbedOptions,
 ): Promise<DiagramEmbedHandle | null> {
 	if (renderRevisions.get(div) !== revision)
 		return null;
@@ -258,6 +269,10 @@ async function renderSchemeAtRevision(
 		destroy() {
 			if (destroyed) return;
 			destroyed = true;
+			if (options.onDestroyed !== undefined) {
+				try { options.onDestroyed(handle); }
+				catch (error) { console.error(error); }
+			}
 			for (const timer of timers) clearTimeout(timer);
 			timers.clear();
 			for (const cleanup of cleanups.splice(0).reverse()) cleanup();
@@ -273,6 +288,10 @@ async function renderSchemeAtRevision(
 	activeRenders.set(div, handle);
 	connectedRenders.add(handle);
 	ensureDisconnectedHostObserver();
+	if (options.onFullscreenRequested !== undefined) {
+		const notifyHost = options.onFullscreenRequested;
+		cleanups.push(diagram.on('fullscreenRequested', (request) => notifyHost(request, handle)));
+	}
 
 	try {
 		// Follow the site theme: the canvas colour comes from the live --diagram-bg CSS token; a theme toggle
@@ -343,13 +362,6 @@ async function renderSchemeAtRevision(
 			cleanups.push(() => window.removeEventListener('resize', onResize));
 		}
 
-		const wrap = div.closest('.ss-expandable');
-		if (wrap) {
-			const classObserver = new MutationObserver(() => scheduleFit(60));
-			classObserver.observe(wrap, { attributes: true, attributeFilter: ['class'] });
-			cleanups.push(() => classObserver.disconnect());
-		}
-
 		div.dataset.rendered = '1';
 		return handle;
 	} catch (error) {
@@ -406,6 +418,7 @@ export async function renderFromSource(
 	div: HTMLElement,
 	paletteUrl: string,
 	srcUrl: string,
+	options: DiagramEmbedOptions = {},
 ): Promise<DiagramEmbedHandle | null> {
 	const revision = beginRender(div);
 	const errors = (div.dataset.diagramErrors ?? '').split('|');
@@ -429,7 +442,7 @@ export async function renderFromSource(
 	}
 
 	try {
-		return await renderSchemeAtRevision(div, paletteUrl, scheme, revision);
+		return await renderSchemeAtRevision(div, paletteUrl, scheme, revision, options);
 	} catch {
 		note(div, errDraw, revision);
 		return null;
@@ -443,6 +456,7 @@ export async function renderFromInline(
 	div: HTMLElement,
 	paletteUrl: string,
 	json: string,
+	options: DiagramEmbedOptions = {},
 ): Promise<DiagramEmbedHandle | null> {
 	const revision = beginRender(div);
 	const errors = (div.dataset.diagramErrors ?? '').split('|');
@@ -463,7 +477,7 @@ export async function renderFromInline(
 	}
 
 	try {
-		return await renderSchemeAtRevision(div, paletteUrl, scheme, revision);
+		return await renderSchemeAtRevision(div, paletteUrl, scheme, revision, options);
 	} catch {
 		note(div, errDraw, revision);
 		return null;
@@ -473,7 +487,7 @@ export async function renderFromInline(
 // Render every not-yet-rendered diagram host under root (default: the whole document). Callable again after
 // dynamic HTML is injected (e.g. the editor preview) to draw hosts that just appeared. A host either points
 // at a source URL (data-diagram-src) or embeds its schema JSON inline (a <script type="application/json">).
-export function renderAll(root: ParentNode = document): void {
+export function renderAll(root: ParentNode = document, options: DiagramEmbedOptions = {}): void {
 	root.querySelectorAll<HTMLElement>('.ss-diagram-host').forEach((host) => {
 		if (host.dataset.rendered === '1')
 			return;
@@ -481,14 +495,14 @@ export function renderAll(root: ParentNode = document): void {
 		const src = host.dataset.diagramSrc;
 		if (src) {
 			host.dataset.rendered = '1';
-			void renderFromSource(host, PALETTE_URL, src);
+			void renderFromSource(host, PALETTE_URL, src, options);
 			return;
 		}
 
 		const inline = host.querySelector('script[type="application/json"]');
 		if (inline) {
 			host.dataset.rendered = '1';
-			void renderFromInline(host, PALETTE_URL, inline.textContent ?? '');
+			void renderFromInline(host, PALETTE_URL, inline.textContent ?? '', options);
 		}
 	});
 }

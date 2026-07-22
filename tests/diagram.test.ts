@@ -90,6 +90,13 @@ class FakeButton {
     removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
         this.listeners.set(type, (this.listeners.get(type) ?? []).filter((handler) => handler !== listener));
     }
+    dispatch(type: string): void {
+        const event = { type, preventDefault: () => undefined } as Event;
+        for (const listener of this.listeners.get(type) ?? []) {
+            if (typeof listener === 'function') listener(event);
+            else listener.handleEvent(event);
+        }
+    }
     remove(): void { this.removed = true; }
 }
 
@@ -1228,7 +1235,7 @@ test('complete StockSharpDiagram API loads through the public entry point', asyn
     assert.equal(diagram.save().nodes.length, 1);
 });
 
-test('built-in fullscreen button can be hidden by options and changed at runtime', async () => {
+test('fullscreen button requests host layout changes and reflects acknowledged state', async () => {
     installDom();
     const { StockSharpCatalog, StockSharpDiagram } = await import('../src/index');
     const host = new FakeHost();
@@ -1251,6 +1258,35 @@ test('built-in fullscreen button can be hidden by options and changed at runtime
     assert.equal(host.button?.style.display, 'inline-flex');
 
     const button = host.button!;
+    const requests: boolean[] = [];
+    const changes: boolean[] = [];
+    diagram.on('fullscreenRequested', ({ fullscreen }) => requests.push(fullscreen));
+    diagram.on('fullscreenChanged', ({ fullscreen }) => changes.push(fullscreen));
+
+    button.dispatch('click');
+    assert.deepEqual(requests, [true]);
+    assert.deepEqual(changes, []);
+    assert.equal(diagram.isFullscreen(), false);
+    assert.equal(button.getAttribute('aria-pressed'), 'false');
+
+    diagram.setFullscreenState(true);
+    assert.deepEqual(changes, [true]);
+    assert.equal(diagram.isFullscreen(), true);
+    assert.match(button.className, /is-active/);
+    assert.equal(button.getAttribute('aria-label'), 'Exit fullscreen');
+    assert.equal(button.getAttribute('aria-pressed'), 'true');
+
+    button.dispatch('click');
+    assert.deepEqual(requests, [true, false]);
+    assert.equal(diagram.isFullscreen(), true);
+
+    diagram.setFullscreenState(false);
+    assert.deepEqual(changes, [true, false]);
+    assert.equal(diagram.isFullscreen(), false);
+    assert.doesNotMatch(button.className, /is-active/);
+    assert.equal(button.getAttribute('aria-label'), 'Enter fullscreen');
+    assert.equal(button.getAttribute('aria-pressed'), 'false');
+
     diagram.destroy();
     assert.equal(button.removed, true);
     assert.equal(host.style.position, previousPosition);

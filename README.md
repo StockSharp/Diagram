@@ -139,14 +139,14 @@ Wrap a host properties form in `transaction(label, action)` when it changes
 several node or port fields. The edits are committed as one undo/redo operation;
 if the action throws, every edit made inside it is rolled back.
 
-The component shows its own fullscreen button in the diagram's top-right corner.
-Set `showFullscreenButton: false` at construction time, or call
-`setFullscreenButtonVisible(false)`, when the host supplies that control. The
-button state also follows an `Esc` exit. `enterFullscreen()`, `exitFullscreen()`
-and `toggleFullscreen()` remain available for custom toolbars. Set
-`fullscreenElement` when a surrounding editor panel should expand instead of
-the bare canvas host, and listen to `fullscreenChanged` for host-side state.
-The button accepts `--ssdiagram-control-background`,
+The component shows a fullscreen request button in the diagram's top-right
+corner. Clicking it only emits `fullscreenRequested`; it never changes page
+layout or calls the browser Fullscreen API. The host decides whether to use a
+CSS overlay, a modal, or `requestFullscreen()`, then acknowledges the applied
+state with `setFullscreenState(value)`. That updates the icon and emits
+`fullscreenChanged`. Set `showFullscreenButton: false` at construction time,
+or call `setFullscreenButtonVisible(false)`, to hide the control. The button
+accepts `--ssdiagram-control-background`,
 `--ssdiagram-control-border` and `--ssdiagram-control-color` CSS overrides.
 
 Viewport preferences are deliberately separate from the strategy document.

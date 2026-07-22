@@ -84,6 +84,13 @@ class FakeButton {
     removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
         this.listeners.set(type, (this.listeners.get(type) ?? []).filter((item) => item !== listener));
     }
+    dispatch(type: string): void {
+        const event = { type, preventDefault: () => undefined } as Event;
+        for (const listener of this.listeners.get(type) ?? []) {
+            if (typeof listener === 'function') listener(event);
+            else listener.handleEvent(event);
+        }
+    }
     remove(): void {
         if (this.parentElement === null) return;
         const index = this.parentElement.children.indexOf(this);
@@ -216,6 +223,42 @@ test('embed rendering replaces and disposes every resource owned by a host', asy
     for (const observer of FakeMutationObserver.instances) observer.trigger();
     assert.equal(third!.destroyed, true);
     assert.equal(host.children.length, 0);
+});
+
+test('embed forwards fullscreen requests to the host callback', async () => {
+    installDom(async () => paletteResponse());
+    const host = new FakeHost();
+    const requests: Array<{ fullscreen: boolean; sameHost: boolean }> = [];
+    let destroyed = 0;
+    const handle = await renderScheme(
+        host as unknown as HTMLElement,
+        '/palette.json',
+        emptyScheme,
+        {
+            onFullscreenRequested: ({ fullscreen }, rendered) => {
+                requests.push({
+                    fullscreen,
+                    sameHost: rendered.host === (host as unknown as HTMLElement),
+                });
+            },
+            onDestroyed: () => { destroyed += 1; },
+        },
+    );
+    assert.notEqual(handle, null);
+
+    const button = host.children.find((child): child is FakeButton => child instanceof FakeButton)!;
+    button.dispatch('click');
+    assert.deepEqual(requests, [{ fullscreen: true, sameHost: true }]);
+    assert.equal(handle!.diagram.isFullscreen(), false);
+
+    handle!.diagram.setFullscreenState(true);
+    button.dispatch('click');
+    assert.deepEqual(requests.at(-1), { fullscreen: false, sameHost: true });
+
+    handle!.destroy();
+    assert.equal(destroyed, 1);
+    button.dispatch('click');
+    assert.equal(requests.length, 2);
 });
 
 test('a stale async render cannot replace a newer host render', async () => {

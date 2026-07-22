@@ -61,8 +61,6 @@ interface ContextActionContext {
 export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     private readonly div: HTMLElement;
     private readonly catalog: StockSharpCatalog;
-    private readonly fullscreenElement: HTMLElement;
-    private readonly fullscreenDocument: Document | null;
     private readonly fullscreenButton: HTMLButtonElement;
     private readonly overviewContainer: HTMLElement | null;
     private readonly zoomLabel: HTMLElement | null;
@@ -84,9 +82,6 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         super();
         this.div = options.div;
         this.catalog = options.catalog;
-        this.fullscreenElement = options.fullscreenElement ?? this.div;
-        this.fullscreenDocument = this.fullscreenElement.ownerDocument
-            ?? (typeof document === 'undefined' ? null : document);
         this.overviewContainer = options.overviewContainer ?? null;
         this.zoomLabel = options.zoomLabel ?? null;
         this.clipboard = this.resolveClipboard(options.clipboard);
@@ -103,13 +98,6 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         this.registerContextActions();
         this.bindCanvasEvents();
         this.disposables.push(this.catalog.on('portTypesChanged', () => this.applySocketTheme()));
-        if (typeof this.fullscreenDocument?.addEventListener === 'function') {
-            const handleFullscreenChange = (): void => this.handleFullscreenChange();
-            this.fullscreenDocument.addEventListener('fullscreenchange', handleFullscreenChange);
-            this.disposables.push(() => this.fullscreenDocument?.removeEventListener(
-                'fullscreenchange', handleFullscreenChange,
-            ));
-        }
         this.updateZoomLabel();
     }
 
@@ -395,7 +383,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     }
 
     isFullscreen(): boolean {
-        return this.fullscreenDocument?.fullscreenElement === this.fullscreenElement;
+        return this.fullscreen;
     }
 
     setFullscreenButtonVisible(visible: boolean): void {
@@ -408,26 +396,12 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         return this.fullscreenButtonVisible;
     }
 
-    async enterFullscreen(options?: FullscreenOptions): Promise<void> {
-        if (this.destroyed) throw new Error('StockSharpDiagram has been destroyed.');
-        if (this.isFullscreen()) return;
-        if (typeof this.fullscreenElement.requestFullscreen !== 'function') {
-            throw new Error('Fullscreen API is not available in this browser.');
-        }
-        await this.fullscreenElement.requestFullscreen(options);
-    }
-
-    async exitFullscreen(): Promise<void> {
-        if (!this.isFullscreen()) return;
-        if (typeof this.fullscreenDocument?.exitFullscreen !== 'function') {
-            throw new Error('Fullscreen API is not available in this browser.');
-        }
-        await this.fullscreenDocument.exitFullscreen();
-    }
-
-    async toggleFullscreen(options?: FullscreenOptions): Promise<void> {
-        if (this.isFullscreen()) await this.exitFullscreen();
-        else await this.enterFullscreen(options);
+    /** Updates only the control's state after the host changed its own layout. */
+    setFullscreenState(fullscreen: boolean): void {
+        if (this.fullscreen === fullscreen) return;
+        this.fullscreen = fullscreen;
+        this.updateFullscreenButton();
+        this.emit('fullscreenChanged', { fullscreen });
     }
 
     setTheme(options: DiagramThemeOptions): void {
@@ -590,23 +564,9 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
 
     destroy(): void {
         if (this.destroyed) return;
-        if (this.isFullscreen()) void this.exitFullscreen().catch(() => undefined);
         this.destroyed = true;
         for (const dispose of this.disposables.splice(0).reverse()) dispose();
         this.canvas.destroy();
-    }
-
-    private handleFullscreenChange(): void {
-        const fullscreen = this.isFullscreen();
-        if (this.fullscreen === fullscreen) return;
-        this.fullscreen = fullscreen;
-        this.updateFullscreenButton();
-        this.emit('fullscreenChanged', { fullscreen });
-        const resize = (): void => {
-            if (!this.destroyed) this.resize(this.div.clientWidth, this.div.clientHeight);
-        };
-        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(resize);
-        else resize();
     }
 
     private prepareFullscreenButtonHost(): void {
@@ -622,7 +582,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     }
 
     private createFullscreenButton(): HTMLButtonElement {
-        const owner = this.div.ownerDocument ?? this.fullscreenDocument ?? document;
+        const owner = this.div.ownerDocument ?? document;
         const button = owner.createElement('button');
         button.type = 'button';
         button.className = 'ssdiagram-fullscreen-button';
@@ -647,9 +607,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
             opacity: '0.9',
         });
         const click = (): void => {
-            void this.toggleFullscreen({ navigationUI: 'hide' }).catch((error: unknown) => {
-                console.error('ssdiagram: fullscreen request failed', error);
-            });
+            this.emit('fullscreenRequested', { fullscreen: !this.fullscreen });
         };
         button.addEventListener('click', click);
         this.div.appendChild(button);
@@ -663,7 +621,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     }
 
     private updateFullscreenButton(): void {
-        const fullscreen = this.isFullscreen();
+        const fullscreen = this.fullscreen;
         const label = fullscreen ? 'Exit fullscreen' : 'Enter fullscreen';
         const path = fullscreen
             ? 'M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5'

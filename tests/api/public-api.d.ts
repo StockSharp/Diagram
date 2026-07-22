@@ -616,9 +616,7 @@ import type { DiagramNode, Link, Port, PortDirection } from './types.js';
 export interface DiagramOptions {
     div: HTMLElement;
     catalog: import('./catalog.js').StockSharpCatalog;
-    /** Element promoted by the Fullscreen API. Defaults to the diagram host. */
-    fullscreenElement?: HTMLElement | null;
-    /** Show the built-in top-right fullscreen button. Defaults to true. */
+    /** Show the built-in top-right fullscreen request button. Defaults to true. */
     showFullscreenButton?: boolean;
     overviewContainer?: HTMLElement | null;
     zoomLabel?: HTMLElement | null;
@@ -689,6 +687,10 @@ export interface DocumentLoadFailedPayload {
     error: Error;
 }
 export interface FullscreenChangedPayload {
+    fullscreen: boolean;
+}
+/** Requested host layout state. The component never enters fullscreen itself. */
+export interface FullscreenRequestedPayload {
     fullscreen: boolean;
 }
 export type ContextCommand = 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'open' | 'delete' | 'properties' | 'help';
@@ -817,6 +819,7 @@ export interface DiagramEvents extends Record<string, unknown> {
         document: DiagramDocument;
     };
     documentLoadFailed: DocumentLoadFailedPayload;
+    fullscreenRequested: FullscreenRequestedPayload;
     fullscreenChanged: FullscreenChangedPayload;
 }
 
@@ -984,9 +987,8 @@ export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     isFullscreen(): boolean;
     setFullscreenButtonVisible(visible: boolean): void;
     isFullscreenButtonVisible(): boolean;
-    enterFullscreen(options?: FullscreenOptions): Promise<void>;
-    exitFullscreen(): Promise<void>;
-    toggleFullscreen(options?: FullscreenOptions): Promise<void>;
+    /** Updates only the control's state after the host changed its own layout. */
+    setFullscreenState(fullscreen: boolean): void;
     setTheme(options: DiagramThemeOptions): void;
     enableUndo(enabled: boolean): void;
     enableRedo(enabled: boolean): void;
@@ -1191,6 +1193,7 @@ export interface PaletteGroupData {
 
 // FILE: embed.d.ts
 import { StockSharpDiagram } from './diagram/stocksharp-diagram.js';
+import type { FullscreenRequestedPayload } from './diagram/api.js';
 export interface DiagramEmbedSchemeNode {
     id: string;
     typeId: string;
@@ -1214,11 +1217,15 @@ export interface DiagramEmbedHandle {
     readonly destroyed: boolean;
     destroy(): void;
 }
-export declare function renderScheme(div: HTMLElement, paletteUrl: string, scheme: DiagramEmbedScheme): Promise<DiagramEmbedHandle | null>;
+export interface DiagramEmbedOptions {
+    onFullscreenRequested?: (request: FullscreenRequestedPayload, handle: DiagramEmbedHandle) => void;
+    onDestroyed?: (handle: DiagramEmbedHandle) => void;
+}
+export declare function renderScheme(div: HTMLElement, paletteUrl: string, scheme: DiagramEmbedScheme, options?: DiagramEmbedOptions): Promise<DiagramEmbedHandle | null>;
 export declare function destroyRenderedDiagram(div: HTMLElement): boolean;
-export declare function renderFromSource(div: HTMLElement, paletteUrl: string, srcUrl: string): Promise<DiagramEmbedHandle | null>;
-export declare function renderFromInline(div: HTMLElement, paletteUrl: string, json: string): Promise<DiagramEmbedHandle | null>;
-export declare function renderAll(root?: ParentNode): void;
+export declare function renderFromSource(div: HTMLElement, paletteUrl: string, srcUrl: string, options?: DiagramEmbedOptions): Promise<DiagramEmbedHandle | null>;
+export declare function renderFromInline(div: HTMLElement, paletteUrl: string, json: string, options?: DiagramEmbedOptions): Promise<DiagramEmbedHandle | null>;
+export declare function renderAll(root?: ParentNode, options?: DiagramEmbedOptions): void;
 
 // FILE: i18n.d.ts
 export interface DesignerI18n {

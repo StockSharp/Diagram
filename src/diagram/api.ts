@@ -9,9 +9,7 @@ import type { DiagramNode, Link, Port, PortDirection } from './types.js';
 export interface DiagramOptions {
     div: HTMLElement;
     catalog: import('./catalog.js').StockSharpCatalog;
-    /** Element promoted by the Fullscreen API. Defaults to the diagram host. */
-    fullscreenElement?: HTMLElement | null;
-    /** Show the built-in top-right fullscreen button. Defaults to true. */
+    /** Show the built-in top-right fullscreen request button. Defaults to true. */
     showFullscreenButton?: boolean;
     overviewContainer?: HTMLElement | null;
     zoomLabel?: HTMLElement | null;
@@ -94,6 +92,11 @@ export interface DocumentLoadFailedPayload {
 }
 
 export interface FullscreenChangedPayload {
+    fullscreen: boolean;
+}
+
+/** Requested host layout state. The component never enters fullscreen itself. */
+export interface FullscreenRequestedPayload {
     fullscreen: boolean;
 }
 
@@ -249,5 +252,6 @@ export interface DiagramEvents extends Record<string, unknown> {
     undoStackChanged: { canUndo: boolean; canRedo: boolean };
     documentLoaded: { document: DiagramDocument };
     documentLoadFailed: DocumentLoadFailedPayload;
+    fullscreenRequested: FullscreenRequestedPayload;
     fullscreenChanged: FullscreenChangedPayload;
 }

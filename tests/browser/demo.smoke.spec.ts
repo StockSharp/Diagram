@@ -34,7 +34,7 @@ test('demo exercises palette, theme, runtime errors and full-image export', asyn
     expect(pageErrors).toEqual([]);
 });
 
-test('demo expands its configured diagram panel to fullscreen', async ({ page }) => {
+test('demo host handles fullscreen requests from the component', async ({ page }) => {
     await page.goto('/demo/index.html');
     const button = page.locator('[data-ssdiagram-fullscreen-button]');
 
@@ -48,15 +48,15 @@ test('demo expands its configured diagram panel to fullscreen', async ({ page })
     await expect(button).toBeVisible();
 
     await button.click();
-    await expect.poll(() => page.evaluate(() => document.fullscreenElement?.classList
-        .contains('canvas-panel') ?? false)).toBe(true);
+    await expect(page.locator('.canvas-panel')).toHaveClass(/is-expanded/);
+    expect(await page.evaluate(() => document.fullscreenElement)).toBeNull();
     await expect(button).toHaveAttribute('aria-label', 'Exit fullscreen');
     await expect(button).toHaveClass(/is-active/);
     await expect(button).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#diagram canvas')).toBeVisible();
 
-    await page.evaluate(() => document.exitFullscreen());
-    await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.canvas-panel')).not.toHaveClass(/is-expanded/);
     await expect(button).toHaveAttribute('aria-label', 'Enter fullscreen');
     await expect(button).not.toHaveClass(/is-active/);
     await expect(button).toHaveAttribute('aria-pressed', 'false');
