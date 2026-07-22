@@ -6,6 +6,13 @@ export {
     serializeDiagramDocument,
 } from './core/document.js';
 
+export { DiagramCommandHistory } from './core/history.js';
+export type {
+    DiagramCommand,
+    DiagramHistoryListener,
+    DiagramHistoryState,
+} from './core/history.js';
+
 export { DIAGRAM_DOCUMENT_VERSION } from './core/model.js';
 
 export type {

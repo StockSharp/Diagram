@@ -240,6 +240,25 @@ test('mutations participate in undo and redo', () => {
     assert.ok(events.length >= 3);
 });
 
+test('port removal and cascaded links are one reversible transaction', () => {
+    const { diagram } = makeDiagram();
+    diagram.load([source, sink], [
+        { id: 'value-link', from: 'source', fromPort: 'out', to: 'sink', toPort: 'in' },
+    ]);
+
+    assert.equal(diagram.removePort('sink', 'in', 'in'), true);
+    assert.equal(diagram.saveDocument().nodes[1].inPorts.length, 0);
+    assert.equal(diagram.saveDocument().links.length, 0);
+
+    diagram.undo();
+    assert.equal(diagram.saveDocument().nodes[1].inPorts[0].id, 'in');
+    assert.equal(diagram.saveDocument().links[0].id, 'value-link');
+
+    diagram.redo();
+    assert.equal(diagram.saveDocument().nodes[1].inPorts.length, 0);
+    assert.equal(diagram.saveDocument().links.length, 0);
+});
+
 test('destroy removes the owned canvas', () => {
     const { diagram, host } = makeDiagram();
     diagram.destroy();

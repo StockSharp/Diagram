@@ -10,6 +10,7 @@
 // selection, delete, zoom/pan, load/save round-trip.
 
 import { createDiagramDocument, parseDiagramDocument } from './core/document.js';
+import { DiagramCommandHistory } from './core/history.js';
 import type {
     DiagramDocument,
     DiagramParameterSchema,
@@ -144,7 +145,7 @@ export interface DiagramEvents {
 // One reversible operation. `do` re-applies it (redo), `undo` reverses
 // it. Both must be idempotent w.r.t. repeated undo/redo. label is for
 // telemetry/debug only.
-interface UndoAction { do: () => void; undo: () => void; label: string }
+interface AppliedAction { do: () => void; undo: () => void; label: string }
 type EvName = keyof DiagramEvents;
 
 // ---- model ----------------------------------------------------------
@@ -420,18 +421,7 @@ export class Diagram {
     private lpStart: { sx: number; sy: number; px: number; py: number } | null = null;
     private readonly lpDelayMs = 550;
     private readonly lpMoveTol = 7;
-    // Undo/redo stacks. Each entry has an inverse (undo) and a forward
-    // (do) callback; replay sets `isApplying=true` so the mutation API
-    // doesn't push a NEW entry while we're undoing/redoing.
-    private undoStack: UndoAction[] = [];
-    private redoStack: UndoAction[] = [];
-    private isApplying = false;
-    // Transaction support: nested withTransaction() calls collapse all
-    // intermediate mutations into one undo step (paste of N nodes +
-    // M links should require ONE Ctrl+Z, not N+M).
-    private txDepth = 0;
-    private txActions: UndoAction[] = [];
-    private txLabel = '';
+    private readonly history: DiagramCommandHistory;
 
     // overview minimap (go.Overview parity)
     private introStart: number | null = null;
@@ -445,6 +435,9 @@ export class Diagram {
     constructor(opts: DiagramOptions) {
         this.opts = opts;
         this.host = opts.host;
+        this.history = new DiagramCommandHistory(({ canUndo, canRedo }) => {
+            this.emit('undoStackChanged', { canUndo, canRedo });
+        });
         this.canvas = document.createElement('canvas');
         this.canvas.style.display = 'block';
         this.canvas.tabIndex = 0;            // focusable → key events
@@ -624,24 +617,10 @@ export class Diagram {
         this.scheduleDraw();
     }
     // ---- undo / redo public surface ---------------------------------
-    canUndo(): boolean { return this.undoStack.length > 0; }
-    canRedo(): boolean { return this.redoStack.length > 0; }
-    undo(): void {
-        const a = this.undoStack.pop();
-        if (a === undefined) return;
-        this.isApplying = true;
-        try { a.undo(); } finally { this.isApplying = false; }
-        this.redoStack.push(a);
-        this.emit('undoStackChanged', { canUndo: this.canUndo(), canRedo: this.canRedo() });
-    }
-    redo(): void {
-        const a = this.redoStack.pop();
-        if (a === undefined) return;
-        this.isApplying = true;
-        try { a.do(); } finally { this.isApplying = false; }
-        this.undoStack.push(a);
-        this.emit('undoStackChanged', { canUndo: this.canUndo(), canRedo: this.canRedo() });
-    }
+    canUndo(): boolean { return this.history.state.canUndo; }
+    canRedo(): boolean { return this.history.state.canRedo; }
+    undo(): void { this.history.undo(); }
+    redo(): void { this.history.redo(); }
     cutSelection(): void {
         // The copy/delete pair is observable as ONE undo step.
         this.copySelection();
@@ -651,29 +630,14 @@ export class Diagram {
     // bulk delete, multi-drag, etc.). Re-entrant: nested calls flatten
     // into the outer batch.
     withTransaction(label: string, fn: () => void): void {
-        if (this.txDepth === 0) this.txLabel = label;
-        this.txDepth++;
-        try { fn(); } finally {
-            this.txDepth--;
-            if (this.txDepth === 0 && this.txActions.length > 0) {
-                const batch = this.txActions.slice();
-                this.txActions.length = 0;
-                this.undoStack.push({
-                    do:   () => { for (const x of batch)                  x.do(); },
-                    undo: () => { for (const x of batch.slice().reverse()) x.undo(); },
-                    label: this.txLabel,
-                });
-                this.redoStack = [];
-                this.emit('undoStackChanged', { canUndo: true, canRedo: false });
-            }
-        }
+        this.history.transaction(label, fn);
     }
-    private record(action: UndoAction): void {
-        if (this.isApplying) return;
-        if (this.txDepth > 0) { this.txActions.push(action); return; }
-        this.undoStack.push(action);
-        this.redoStack = [];
-        this.emit('undoStackChanged', { canUndo: true, canRedo: false });
+    private record(action: AppliedAction): void {
+        this.history.recordApplied({
+            label: action.label,
+            execute: action.do,
+            undo: action.undo,
+        });
     }
     deleteSelection(): void {
         if (this.selectedNodes.size > 0) {
@@ -690,11 +654,7 @@ export class Diagram {
         this.nodes = []; this.links = [];
         this.selectedNode = null; this.selectedNodes.clear(); this.selectedLink = null;
         this.documentMetadata = {};
-        this.undoStack = [];
-        this.redoStack = [];
-        this.txDepth = 0;
-        this.txActions = [];
-        this.emit('undoStackChanged', { canUndo: false, canRedo: false });
+        this.history.clear();
         this.scheduleDraw();
     }
 
@@ -837,20 +797,19 @@ export class Diagram {
         // Initial load is "model seed" — should NOT be undoable, and
         // shouldn't leave the user with 12 entries to Ctrl+Z through
         // before their stack reaches their first real action.
-        this.isApplying = true;
-        try {
-            for (const n of nodes) this.addDiagramNode(n);
-            for (const l of links) {
-                const id = l.id ?? this.nextLinkId();
-                if (this.links.some((existing) => existing.id === id)) {
-                    throw new Error(`ssgraph: duplicate link id "${id}"`);
-                }
-                const lm = new LinkModel(l.from, l.fromPort, l.to, l.toPort, id, l.metadata);
-                if (!this.links.some((x) => x.key() === lm.key())) this.links.push(lm);
+        for (const node of nodes) {
+            const id = node.id ?? this.nextNodeId();
+            this.doAddNode({ ...node, id });
+        }
+        for (const link of links) {
+            const id = link.id ?? this.nextLinkId();
+            if (this.links.some((existing) => existing.id === id)) {
+                throw new Error(`ssgraph: duplicate link id "${id}"`);
             }
-        } finally { this.isApplying = false; }
-        this.undoStack = []; this.redoStack = [];
-        this.emit('undoStackChanged', { canUndo: false, canRedo: false });
+            const model = new LinkModel(link.from, link.fromPort, link.to, link.toPort, id, link.metadata);
+            if (!this.links.some((existing) => existing.key() === model.key())) this.links.push(model);
+        }
+        this.history.clear();
         this.emit('loadFinished', { nodes: this.nodes.slice(), links: this.links.slice() });
         this.zoomToFit();
         this.playIntro();
