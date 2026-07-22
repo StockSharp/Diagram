@@ -126,6 +126,15 @@ Connecting to that anchor creates a single-link sibling typed from the source;
 disconnecting, relinking, or deleting the source prunes an orphan sibling. The
 port and wire lifecycle is one undoable transaction and round-trips unchanged.
 
+Port cardinality follows the Designer `LinkableMaximum` contract on both ends:
+`maxLinks: 0` is unlimited, while a positive value limits that input or output.
+An unlimited input accepts multiple sources and an unlimited output can fan out
+to multiple targets; the same output/input pair is still never duplicated.
+Use `updatePort(nodeId, direction, portId, patch)` to change `maxLinks`, type or
+accepted types at runtime. Lowering a limit keeps existing wires and only
+rejects new ones. `Any`, `Object`, `System.Object` and `*` are wildcard socket
+types and therefore connect to every concrete type.
+
 Viewport preferences are deliberately separate from the strategy document.
 Persist `diagram.saveViewState()` in host settings and restore it with
 `diagram.loadViewState(value)`. The versioned snapshot contains zoom, pan and

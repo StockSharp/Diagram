@@ -37,6 +37,9 @@ export interface PortInit {
     isSibling?: boolean;
 }
 
+/** Mutable port properties. Port identity and direction remain stable. */
+export type PortUpdate = Partial<Omit<PortInit, 'id'>>;
+
 export class Port {
     id: string;
     name: string;

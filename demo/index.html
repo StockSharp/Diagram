@@ -43,7 +43,7 @@
         <span>BTC/USDT · 1m</span>
       </div>
       <div id="diagram" aria-label="Interactive StockSharp strategy diagram"></div>
-      <div class="canvas-help">Double-click an indicator to edit · double-click empty space to fit</div>
+      <div class="canvas-help">Select a wire to drag its endpoint handles · double-click an indicator to edit</div>
     </section>
   </main>
 
@@ -63,6 +63,25 @@
         <span>Period</span>
         <input id="indicatorPeriod" type="number" min="1" max="1000" step="1" required>
       </label>
+      <fieldset class="dialog-port-settings">
+        <legend>Port policy</legend>
+        <label class="dialog-field">
+          <span>Input type</span>
+          <select id="indicatorInputType">
+            <option value="Candle">Candle only</option>
+            <option value="Object">Object — any data type</option>
+          </select>
+        </label>
+        <label class="dialog-check">
+          <input id="indicatorInputMulti" type="checkbox">
+          <span>Allow multiple incoming wires</span>
+        </label>
+        <label class="dialog-check">
+          <input id="indicatorOutputMulti" type="checkbox">
+          <span>Allow output fan-out to multiple inputs</span>
+        </label>
+        <small>Changes apply to the live ports without reloading the diagram.</small>
+      </fieldset>
       <div class="dialog-actions">
         <button class="tbtn" type="button" id="indicatorCancelBtn">Cancel</button>
         <button class="tbtn primary" type="submit">Apply</button>

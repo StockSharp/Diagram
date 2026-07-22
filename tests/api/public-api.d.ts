@@ -508,7 +508,7 @@ import type { DiagramGlobalErrorKind, DiagramInteractionPermissions, DiagramPort
 import { Diagram as CanvasDiagram, type LinkValidationResult } from '../ssgraph.js';
 import { EventEmitter } from './event-emitter.js';
 import type { DiagramEvents, ContextCommand, DiagramLoadOptions, DiagramGridSettings, DiagramOptions, DiagramScreenshotOptions, DiagramThemeOptions, LinkValidator, NodeErrorKind, NodeErrorOptions } from './api.js';
-import { DiagramNode, Link, Port, type PortDirection } from './types.js';
+import { DiagramNode, Link, Port, type PortDirection, type PortUpdate } from './types.js';
 export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     private readonly div;
     private readonly catalog;
@@ -545,6 +545,7 @@ export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     addPort(nodeId: string, direction: PortDirection, port: Port): void;
     removePort(nodeId: string, direction: PortDirection, portId: string): void;
     updatePortType(nodeId: string, direction: PortDirection, portId: string, type: string): void;
+    updatePort(nodeId: string, direction: PortDirection, portId: string, patch: PortUpdate): boolean;
     setNodePorts(nodeId: string, inPorts: ReadonlyArray<{
         key: string;
         name: string;
@@ -669,6 +670,8 @@ export interface PortInit {
     dynamicMode?: string;
     isSibling?: boolean;
 }
+/** Mutable port properties. Port identity and direction remain stable. */
+export type PortUpdate = Partial<Omit<PortInit, 'id'>>;
 export declare class Port {
     id: string;
     name: string;
@@ -1035,11 +1038,11 @@ export type { CatalogEvents } from './diagram/catalog.js';
 export { PALETTE_DRAG_MIME, StockSharpPalette, } from './diagram/palette.js';
 export type { PaletteContextMenuPayload, PaletteEvents, PaletteNodePayload, PaletteOptions, PaletteSelectionChangedPayload, } from './diagram/palette.js';
 export { DiagramNode, Link, Node, Port, PortType, } from './diagram/types.js';
-export type { DiagramNodeInit, LinkEndpoint, LinkInit, NodeData, NodeInit, PaletteGroupData, PaletteNodeData, ParamSchema, PortData, PortDirection, PortInit, PortTypeInit, } from './diagram/types.js';
+export type { DiagramNodeInit, LinkEndpoint, LinkInit, NodeData, NodeInit, PaletteGroupData, PaletteNodeData, ParamSchema, PortData, PortDirection, PortInit, PortUpdate, PortTypeInit, } from './diagram/types.js';
 export { destroyRenderedDiagram, renderAll, renderFromInline, renderFromSource, renderScheme, } from './embed.js';
 export type { DiagramEmbedHandle, DiagramEmbedScheme, DiagramEmbedSchemeLink, DiagramEmbedSchemeNode, } from './embed.js';
 export { Diagram as CanvasDiagram, LinkModel, NodeModel, PortModel, version, } from './ssgraph.js';
-export type { DiagramNodeInit as CanvasDiagramNodeInit, DiagramOptions as CanvasDiagramOptions, DiagramScreenshotOptions as CanvasDiagramScreenshotOptions, DiagramScreenshotScope as CanvasDiagramScreenshotScope, LinkInit as CanvasLinkInit, LinkValidator as CanvasLinkValidator, LinkValidatorArgs as CanvasLinkValidatorArgs, NodeErrorKind as CanvasNodeErrorKind, NodeErrorOptions as CanvasNodeErrorOptions, PortDirection as CanvasPortDirection, PortInit as CanvasPortInit, } from './ssgraph.js';
+export type { DiagramNodeInit as CanvasDiagramNodeInit, DiagramOptions as CanvasDiagramOptions, DiagramScreenshotOptions as CanvasDiagramScreenshotOptions, DiagramScreenshotScope as CanvasDiagramScreenshotScope, LinkInit as CanvasLinkInit, LinkValidator as CanvasLinkValidator, LinkValidatorArgs as CanvasLinkValidatorArgs, NodeErrorKind as CanvasNodeErrorKind, NodeErrorOptions as CanvasNodeErrorOptions, PortDirection as CanvasPortDirection, PortInit as CanvasPortInit, PortUpdate as CanvasPortUpdate, } from './ssgraph.js';
 
 // FILE: ssdiagram.d.ts
 import { Diagram as SsDiagram, LinkModel } from './ssgraph.js';
@@ -1352,6 +1355,8 @@ export interface PortInit {
     isSibling?: boolean;
     metadata?: JsonObject;
 }
+/** Mutable port properties. Port identity and direction remain stable. */
+export type PortUpdate = Partial<Omit<PortInit, 'id'>>;
 export interface DiagramNodeInit {
     id?: string;
     typeId?: string;
@@ -1722,6 +1727,7 @@ export declare class Diagram {
     addPort(nodeId: string, direction: PortDirection, init: PortInit): boolean;
     removePort(nodeId: string, direction: PortDirection, portId: string): boolean;
     updatePortType(nodeId: string, direction: PortDirection, portId: string, type: string): boolean;
+    updatePort(nodeId: string, direction: PortDirection, portId: string, patch: PortUpdate): boolean;
     setNodePorts(nodeId: string, inPorts: readonly PortInit[], outPorts: readonly PortInit[]): boolean;
     updateNode(nodeId: string, patch: Partial<Pick<DiagramNodeInit, 'name' | 'description' | 'color' | 'border' | 'message' | 'openAction'>>): boolean;
     setNodeParamValue(nodeId: string, name: string, value: string | undefined): boolean;
@@ -1788,6 +1794,7 @@ export declare class Diagram {
     private toWorld;
     private portColor;
     private portAt;
+    private selectedLinkEndpointAt;
     private nodeAt;
     private obstaclesFor;
     private routeLink;
@@ -1795,6 +1802,8 @@ export declare class Diagram {
     private endpoint;
     validateLink(init: Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>, excludeLinkId?: string): LinkValidationResult;
     private validateLinkModels;
+    private removeIncompatibleLinks;
+    private canExistingLinkRemain;
     private findSnap;
     private selectNode;
     private toggleSelect;
@@ -1828,6 +1837,7 @@ export declare class Diagram {
     private portRuntimeState;
     private strokeRoute;
     private drawArrow;
+    private drawSelectedLinkEndpoints;
     private drawPendingLink;
     private overviewRect;
     private drawOverview;

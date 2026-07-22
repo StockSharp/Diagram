@@ -149,6 +149,7 @@ export type {
     PortData,
     PortDirection,
     PortInit,
+    PortUpdate,
     PortTypeInit,
 } from './diagram/types.js';
 
@@ -190,4 +191,5 @@ export type {
     NodeErrorOptions as CanvasNodeErrorOptions,
     PortDirection as CanvasPortDirection,
     PortInit as CanvasPortInit,
+    PortUpdate as CanvasPortUpdate,
 } from './ssgraph.js';

@@ -47,6 +47,7 @@ import {
     Node,
     Port,
     type PortDirection,
+    type PortUpdate,
 } from './types.js';
 
 interface ContextActionContext {
@@ -185,6 +186,10 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
 
     updatePortType(nodeId: string, direction: PortDirection, portId: string, type: string): void {
         this.canvas.updatePortType(nodeId, direction, portId, type);
+    }
+
+    updatePort(nodeId: string, direction: PortDirection, portId: string, patch: PortUpdate): boolean {
+        return this.canvas.updatePort(nodeId, direction, portId, patch);
     }
 
     setNodePorts(

@@ -19,9 +19,13 @@ const indicatorDialog = document.querySelector<HTMLDialogElement>('#indicatorDia
 const indicatorForm = document.querySelector<HTMLFormElement>('#indicatorForm');
 const indicatorTitle = document.querySelector<HTMLElement>('#indicatorTitle');
 const indicatorPeriod = document.querySelector<HTMLInputElement>('#indicatorPeriod');
+const indicatorInputType = document.querySelector<HTMLSelectElement>('#indicatorInputType');
+const indicatorInputMulti = document.querySelector<HTMLInputElement>('#indicatorInputMulti');
+const indicatorOutputMulti = document.querySelector<HTMLInputElement>('#indicatorOutputMulti');
 
 if (diagramHost === null || paletteHost === null || search === null || status === null || modelStats === null
-    || indicatorDialog === null || indicatorForm === null || indicatorTitle === null || indicatorPeriod === null)
+    || indicatorDialog === null || indicatorForm === null || indicatorTitle === null || indicatorPeriod === null
+    || indicatorInputType === null || indicatorInputMulti === null || indicatorOutputMulti === null)
     throw new Error('Diagram demo markup is incomplete.');
 
 const svgIcon = (label: string, color: string): string => {
@@ -36,6 +40,7 @@ const catalog = new StockSharpCatalog();
     new PortType({ name: 'Boolean', color: 'hsl(42, 82%, 57%)' }),
     new PortType({ name: 'Order', color: 'hsl(350, 69%, 62%)' }),
     new PortType({ name: 'Trade', color: 'hsl(153, 67%, 49%)' }),
+    new PortType({ name: 'Object', color: 'hsl(215, 16%, 62%)' }),
 ].forEach((type) => catalog.addPortType(type));
 
 [
@@ -101,12 +106,14 @@ const catalog = new StockSharpCatalog();
         inPorts: [
             { id: 'candles', name: 'Candles', type: 'Candle' },
             { id: 'trades', name: 'Trades', type: 'Trade' },
+            { id: 'object', name: 'Any object', type: 'Object' },
         ],
     }),
 ].forEach((node) => catalog.addNodeType(node));
 
 const palette = new StockSharpPalette({ div: paletteHost, catalog });
 const diagram = new StockSharpDiagram({ div: diagramHost, catalog });
+(window as Window & { stockSharpDiagramDemo?: StockSharpDiagram }).stockSharpDiagramDemo = diagram;
 
 palette.on('nodeActivated', ({ node: activated }) => {
     const rect = diagramHost.getBoundingClientRect();
@@ -192,9 +199,6 @@ function reset(nodeErrors: Readonly<Record<string, string>> = {}): void {
     updateState();
 }
 
-diagram.setLinkValidator(({ fromPort, toPort }) =>
-    fromPort.type === toPort.type || toPort.availableTypes.includes(fromPort.type));
-
 diagram.on('nodeSelected', ({ node: selected }) => {
     setStatus(selected === null ? 'Selection cleared.' : `Selected: ${selected.name}`);
 });
@@ -212,8 +216,20 @@ diagram.on('linkAdded', ({ links }) => {
     updateState();
 });
 diagram.on('linkRemoved', updateState);
-diagram.on('linkValidation', ({ allowed }) => {
-    if (!allowed) setStatus('Rejected: socket types are incompatible.');
+diagram.on('linkRelinked', ({ link }) => {
+    setStatus(`Relinked ${String(link.outNode)} → ${String(link.inNode)}.`);
+});
+diagram.on('linkValidation', ({ allowed, reason }) => {
+    if (allowed) return;
+    const messages: Partial<Record<typeof reason, string>> = {
+        'duplicate-link': 'Rejected: that exact output/input pair is already connected.',
+        'source-limit': 'Rejected: the output does not allow another wire.',
+        'target-limit': 'Rejected: the input does not allow another wire.',
+        'incompatible-type': 'Rejected: socket types are incompatible.',
+        'same-node': 'Rejected: a node cannot connect to itself.',
+        'host-rejected': 'Rejected by the host application.',
+    };
+    setStatus(messages[reason] ?? `Rejected: ${reason}.`);
 });
 diagram.on('nodeOpen', ({ nodes }) => {
     const selected = nodes[0];
@@ -223,6 +239,15 @@ diagram.on('nodeOpen', ({ nodes }) => {
     indicatorPeriod.value = selected.paramValues.Period
         ?? selected.name.match(/\((\d+)\)/)?.[1]
         ?? '20';
+    const input = selected.inPorts.find((port) => port.id === 'source');
+    const output = selected.outPorts.find((port) => port.id === 'value');
+    const normalizedType = input?.type.trim().toLowerCase() ?? '';
+    indicatorInputType.value = normalizedType === 'any' || normalizedType === 'object'
+        || normalizedType === 'system.object' || normalizedType === '*'
+        ? 'Object'
+        : 'Candle';
+    indicatorInputMulti.checked = input !== undefined && input.maxLinks !== 1;
+    indicatorOutputMulti.checked = output !== undefined && output.maxLinks !== 1;
     if (indicatorDialog.open) indicatorDialog.close();
     indicatorDialog.showModal();
     indicatorPeriod.focus();
@@ -237,7 +262,17 @@ indicatorForm.addEventListener('submit', (event) => {
     const baseName = activeIndicator.name.replace(/\s*\(\d+\)\s*$/, '');
     diagram.setNodeParamValue(activeIndicator.id, 'Period', period);
     diagram.setNodeName(activeIndicator.id, `${baseName} (${period})`);
-    setStatus(`Updated ${baseName}: period ${period}`);
+    diagram.updatePort(activeIndicator.id, 'in', 'source', {
+        type: indicatorInputType.value,
+        availableTypes: [],
+        maxLinks: indicatorInputMulti.checked ? 0 : 1,
+    });
+    diagram.updatePort(activeIndicator.id, 'out', 'value', {
+        maxLinks: indicatorOutputMulti.checked ? 0 : 1,
+    });
+    setStatus(`Updated ${baseName}: period ${period}, input ${indicatorInputType.value}, `
+        + `fan-in ${indicatorInputMulti.checked ? 'multiple' : 'single'}, `
+        + `fan-out ${indicatorOutputMulti.checked ? 'multiple' : 'single'}.`);
     indicatorDialog.close();
     activeIndicator = null;
 });

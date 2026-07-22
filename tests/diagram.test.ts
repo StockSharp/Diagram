@@ -289,6 +289,146 @@ test('link validation reports compatibility, duplicates and limits on both ends'
     }), { allowed: false, reason: 'host-rejected' });
 });
 
+test('port limits independently control fan-in and fan-out and can change at runtime', () => {
+    const { diagram } = makeDiagram();
+    diagram.load([{
+        id: 'source-a', name: 'Source A',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Decimal', maxLinks: 1 }],
+    }, {
+        id: 'source-b', name: 'Source B',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Decimal' }],
+    }, {
+        id: 'source-c', name: 'Source C',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Decimal' }],
+    }, {
+        id: 'sink-a', name: 'Sink A',
+        inPorts: [{ id: 'in', name: 'In', type: 'Decimal', maxLinks: 1 }],
+    }, {
+        id: 'sink-b', name: 'Sink B',
+        inPorts: [{ id: 'in', name: 'In', type: 'Decimal' }],
+    }, {
+        id: 'sink-c', name: 'Sink C',
+        inPorts: [{ id: 'in', name: 'In', type: 'Decimal' }],
+    }], []);
+
+    const first = { from: 'source-a', fromPort: 'out', to: 'sink-a', toPort: 'in' };
+    assert.equal(diagram.addLink(first), true);
+    assert.deepEqual(diagram.validateLink({
+        from: 'source-a', fromPort: 'out', to: 'sink-b', toPort: 'in',
+    }), { allowed: false, reason: 'source-limit' });
+    assert.deepEqual(diagram.validateLink({
+        from: 'source-b', fromPort: 'out', to: 'sink-a', toPort: 'in',
+    }), { allowed: false, reason: 'target-limit' });
+
+    assert.equal(diagram.updatePort('source-a', 'out', 'out', { maxLinks: 0 }), true);
+    assert.equal(diagram.updatePort('sink-a', 'in', 'in', { maxLinks: 0 }), true);
+    assert.equal(diagram.addLink({
+        from: 'source-a', fromPort: 'out', to: 'sink-b', toPort: 'in',
+    }), true);
+    assert.equal(diagram.addLink({
+        from: 'source-b', fromPort: 'out', to: 'sink-a', toPort: 'in',
+    }), true);
+    assert.deepEqual(diagram.validateLink(first), { allowed: false, reason: 'duplicate-link' });
+
+    assert.equal(diagram.updatePort('source-a', 'out', 'out', { maxLinks: 1 }), true);
+    assert.equal(diagram.updatePort('sink-a', 'in', 'in', { maxLinks: 1 }), true);
+    assert.equal(diagram.saveDocument().links.length, 3, 'lower limits must not delete existing links');
+    assert.deepEqual(diagram.validateLink({
+        from: 'source-c', fromPort: 'out', to: 'sink-a', toPort: 'in',
+    }), { allowed: false, reason: 'target-limit' });
+    assert.deepEqual(diagram.validateLink({
+        from: 'source-a', fromPort: 'out', to: 'sink-c', toPort: 'in',
+    }), { allowed: false, reason: 'source-limit' });
+
+    diagram.undo();
+    assert.deepEqual(diagram.validateLink({
+        from: 'source-c', fromPort: 'out', to: 'sink-a', toPort: 'in',
+    }), { allowed: true, reason: 'allowed' });
+    diagram.undo();
+    assert.deepEqual(diagram.validateLink({
+        from: 'source-a', fromPort: 'out', to: 'sink-c', toPort: 'in',
+    }), { allowed: true, reason: 'allowed' });
+});
+
+test('Any and Object ports accept every socket type', () => {
+    const { diagram } = makeDiagram();
+    diagram.load([{
+        id: 'decimal', name: 'Decimal source',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Decimal' }],
+    }, {
+        id: 'any', name: 'Any source',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Any' }],
+    }, {
+        id: 'object', name: 'Object sink',
+        inPorts: [{ id: 'in', name: 'In', type: 'Object' }],
+    }, {
+        id: 'candle', name: 'Candle sink',
+        inPorts: [{ id: 'in', name: 'In', type: 'Candle' }],
+    }, {
+        id: 'available-object', name: 'Wildcard whitelist sink',
+        inPorts: [{ id: 'in', name: 'In', type: 'Candle', availableTypes: ['System.Object'] }],
+    }], []);
+
+    assert.deepEqual(diagram.validateLink({
+        from: 'decimal', fromPort: 'out', to: 'object', toPort: 'in',
+    }), { allowed: true, reason: 'allowed' });
+    assert.deepEqual(diagram.validateLink({
+        from: 'any', fromPort: 'out', to: 'candle', toPort: 'in',
+    }), { allowed: true, reason: 'allowed' });
+    assert.deepEqual(diagram.validateLink({
+        from: 'decimal', fromPort: 'out', to: 'available-object', toPort: 'in',
+    }), { allowed: true, reason: 'allowed' });
+    assert.deepEqual(diagram.validateLink({
+        from: 'decimal', fromPort: 'out', to: 'candle', toPort: 'in',
+    }), { allowed: false, reason: 'incompatible-type' });
+});
+
+test('changing a port type removes only incompatible links as one undoable edit', () => {
+    const { diagram } = makeDiagram();
+    diagram.load([{
+        id: 'decimal', name: 'Decimal source',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Decimal' }],
+    }, {
+        id: 'candle', name: 'Candle source',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Candle' }],
+    }, {
+        id: 'sink', name: 'Object sink',
+        inPorts: [{ id: 'in', name: 'In', type: 'Object' }],
+    }], []);
+    assert.equal(diagram.addLink({ from: 'decimal', fromPort: 'out', to: 'sink', toPort: 'in' }), true);
+    assert.equal(diagram.addLink({ from: 'candle', fromPort: 'out', to: 'sink', toPort: 'in' }), true);
+
+    assert.equal(diagram.updatePort('sink', 'in', 'in', { type: 'Decimal' }), true);
+    assert.equal(diagram.findNode('sink')?.inPorts[0]?.type, 'Decimal');
+    assert.deepEqual(diagram.saveDocument().links.map((link) => link.from.nodeId), ['decimal']);
+
+    diagram.undo();
+    assert.equal(diagram.findNode('sink')?.inPorts[0]?.type, 'Object');
+    assert.deepEqual(diagram.saveDocument().links.map((link) => link.from.nodeId), ['decimal', 'candle']);
+
+    diagram.redo();
+    assert.equal(diagram.findNode('sink')?.inPorts[0]?.type, 'Decimal');
+    assert.deepEqual(diagram.saveDocument().links.map((link) => link.from.nodeId), ['decimal']);
+});
+
+test('replacing a node port schema removes links that no longer match its types', () => {
+    const { diagram } = makeDiagram();
+    diagram.load([{
+        id: 'source', name: 'Decimal source',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Decimal' }],
+    }, {
+        id: 'sink', name: 'Object sink',
+        inPorts: [{ id: 'in', name: 'In', type: 'Object' }],
+    }], [{ from: 'source', fromPort: 'out', to: 'sink', toPort: 'in' }]);
+
+    assert.equal(diagram.setNodePorts('sink', [{ id: 'in', name: 'In', type: 'Candle' }], []), true);
+    assert.equal(diagram.saveDocument().links.length, 0);
+
+    diagram.undo();
+    assert.equal(diagram.findNode('sink')?.inPorts[0]?.type, 'Object');
+    assert.equal(diagram.saveDocument().links.length, 1);
+});
+
 test('relink preserves identity and metadata and is one reversible action', () => {
     const { diagram } = makeDiagram();
     diagram.load([{
@@ -925,6 +1065,7 @@ test('complete StockSharpDiagram API loads through the direct canvas facade', as
     const {
         DiagramNode,
         Node,
+        Port,
         StockSharpCatalog,
         StockSharpDiagram,
     } = await import('../src/index');
@@ -953,6 +1094,14 @@ test('complete StockSharpDiagram API loads through the direct canvas facade', as
     ], []);
 
     assert.equal(diagram.save().nodes[0].name, 'High-level source');
+    assert.equal(diagram.updatePort('high-level', 'out', 'value', {
+        type: 'Object', maxLinks: 2, availableTypes: ['Any'],
+    }), true);
+    assert.deepEqual(diagram.save().nodes[0].outPorts[0], new Port({
+        id: 'value', name: 'Value', type: 'Object', maxLinks: 2, availableTypes: ['Any'],
+    }));
+    diagram.undo();
+    assert.equal(diagram.save().nodes[0].outPorts[0].type, 'Decimal');
     const canvas = diagram.renderer;
     assert.equal(canvas.save().nodes.length, 1);
     let clicked: { nodeId: string; portId: string; direction: string; action: string } | null = null;

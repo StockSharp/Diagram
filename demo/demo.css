@@ -102,7 +102,7 @@ button, input { font: inherit; }
 }
 
 .indicator-dialog {
-    width: min(420px, calc(100vw - 32px));
+    width: min(460px, calc(100vw - 32px));
     padding: 0;
     border: 1px solid var(--t-border);
     border-radius: 10px;
@@ -118,7 +118,8 @@ button, input { font: inherit; }
 .indicator-dialog code { color: var(--t-accent); }
 .dialog-kicker { color: var(--t-accent); font-size: 10px; font-weight: 700; letter-spacing: .8px; }
 .dialog-field { display: grid; gap: 7px; color: var(--t-text-dim); font-size: 11px; }
-.dialog-field input {
+.dialog-field input:not([type="checkbox"]),
+.dialog-field select {
     width: 100%;
     padding: 9px 10px;
     border: 1px solid var(--t-border);
@@ -127,7 +128,20 @@ button, input { font: inherit; }
     background: var(--t-bg);
     color: var(--t-text-bright);
 }
-.dialog-field input:focus { border-color: var(--t-accent); }
+.dialog-field input:focus,
+.dialog-field select:focus { border-color: var(--t-accent); }
+.dialog-port-settings {
+    display: grid;
+    gap: 13px;
+    margin: 18px 0 0;
+    padding: 14px;
+    border: 1px solid var(--t-border);
+    border-radius: 7px;
+}
+.dialog-port-settings legend { padding: 0 6px; color: var(--t-text-bright); font-size: 11px; font-weight: 700; }
+.dialog-port-settings small { color: var(--t-text-dim); font-size: 10px; line-height: 1.45; }
+.dialog-check { display: flex; align-items: center; gap: 9px; color: var(--t-text); font-size: 11px; }
+.dialog-check input { width: 15px; height: 15px; margin: 0; accent-color: var(--t-accent); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
 
 .diagram-workspace {

@@ -50,6 +50,9 @@ export interface PortInit {
     metadata?: JsonObject;
 }
 
+/** Mutable port properties. Port identity and direction remain stable. */
+export type PortUpdate = Partial<Omit<PortInit, 'id'>>;
+
 export interface DiagramNodeInit {
     id?: string;
     typeId?: string;
@@ -264,6 +267,29 @@ function copyJsonObject(value: JsonObject | undefined): JsonObject {
 
 function copyParameters(value: readonly DiagramParameterSchema[] | undefined): DiagramParameterSchema[] {
     return (value ?? []).map((parameter) => ({ ...parameter, options: [...parameter.options] }));
+}
+
+function normalizePortType(type: string): string {
+    return type.trim().toLowerCase();
+}
+
+function isWildcardPortType(type: string): boolean {
+    const normalized = normalizePortType(type);
+    return normalized === ''
+        || normalized === '*'
+        || normalized === 'any'
+        || normalized === 'anydata'
+        || normalized === 'any data'
+        || normalized === 'object'
+        || normalized === 'system.object'
+        || normalized.startsWith('system.object,');
+}
+
+function arePortTypesCompatible(fromType: string, toType: string, availableTypes: readonly string[]): boolean {
+    if (isWildcardPortType(fromType) || isWildcardPortType(toType)) return true;
+    const normalizedFrom = normalizePortType(fromType);
+    return [toType, ...availableTypes].some((type) =>
+        isWildcardPortType(type) || normalizePortType(type) === normalizedFrom);
 }
 
 export class PortModel {
@@ -1009,17 +1035,45 @@ export class Diagram {
     }
 
     updatePortType(nodeId: string, direction: PortDirection, portId: string, type: string): boolean {
+        return this.updatePort(nodeId, direction, portId, { type });
+    }
+
+    updatePort(nodeId: string, direction: PortDirection, portId: string, patch: PortUpdate): boolean {
         const node = this.findNode(nodeId);
         const port = direction === 'in'
             ? node?.inPorts.find((candidate) => candidate.id === portId)
             : node?.outPorts.find((candidate) => candidate.id === portId);
-        if (port === undefined || port.type === type) return false;
-        return this.updateNodeState(nodeId, 'update port type', (target) => {
-            const targetPort = direction === 'in'
-                ? target.inPorts.find((candidate) => candidate.id === portId)
-                : target.outPorts.find((candidate) => candidate.id === portId);
-            if (targetPort !== undefined) targetPort.type = type;
+        if (port === undefined) return false;
+        if (patch.maxLinks !== undefined && (!Number.isInteger(patch.maxLinks) || patch.maxLinks < 0)) {
+            throw new RangeError('ssgraph: port maxLinks must be a non-negative integer');
+        }
+        const compatibilityChanged = (patch.type !== undefined && patch.type !== port.type)
+            || (patch.availableTypes !== undefined
+                && JSON.stringify(patch.availableTypes) !== JSON.stringify(port.availableTypes));
+        let changed = false;
+        this.withTransaction('update port', () => {
+            changed = this.updateNodeState(nodeId, 'update port', (target) => {
+                const targetPort = direction === 'in'
+                    ? target.inPorts.find((candidate) => candidate.id === portId)
+                    : target.outPorts.find((candidate) => candidate.id === portId);
+                if (targetPort === undefined) return;
+                if (patch.name !== undefined) targetPort.name = patch.name;
+                if (patch.description !== undefined) targetPort.description = patch.description;
+                if (patch.type !== undefined) targetPort.type = patch.type;
+                if (patch.maxLinks !== undefined) targetPort.maxLinks = patch.maxLinks;
+                if (patch.availableTypes !== undefined) targetPort.availableTypes = [...patch.availableTypes];
+                if (patch.isDynamic !== undefined) targetPort.isDynamic = patch.isDynamic;
+                if (patch.dynamicMode !== undefined) targetPort.dynamicMode = patch.dynamicMode;
+                if (patch.isSibling !== undefined) targetPort.isSibling = patch.isSibling;
+                if (patch.metadata !== undefined) targetPort.metadata = copyJsonObject(patch.metadata);
+            });
+            if (changed && compatibilityChanged) {
+                this.removeIncompatibleLinks((link) => direction === 'in'
+                    ? link.to === nodeId && link.toPort === portId
+                    : link.from === nodeId && link.fromPort === portId);
+            }
         });
+        return changed;
     }
 
     setNodePorts(nodeId: string, inPorts: readonly PortInit[], outPorts: readonly PortInit[]): boolean {
@@ -1037,6 +1091,9 @@ export class Diagram {
                 target.inPorts = inPorts.map((port) => new PortModel(port, 'in'));
                 target.outPorts = outPorts.map((port) => new PortModel(port, 'out'));
             });
+            if (changed) {
+                this.removeIncompatibleLinks((link) => link.from === nodeId || link.to === nodeId);
+            }
         });
         return changed;
     }
@@ -1703,14 +1760,30 @@ export class Diagram {
             const used = relevantLinks.filter((link) => link.to === toNode.id && link.toPort === toPort.id).length;
             if (used >= toPort.maxLinks) return { allowed: false, reason: 'target-limit' };
         }
-        if (fromPort.type !== '' && toPort.type !== '') {
-            const accepted = new Set([toPort.type, ...toPort.availableTypes]);
-            if (!accepted.has(fromPort.type)) return { allowed: false, reason: 'incompatible-type' };
+        if (!arePortTypesCompatible(fromPort.type, toPort.type, toPort.availableTypes)) {
+            return { allowed: false, reason: 'incompatible-type' };
         }
         if (this.validator !== null && !this.validator({ fromNode, fromPort, toNode, toPort })) {
             return { allowed: false, reason: 'host-rejected' };
         }
         return { allowed: true, reason: 'allowed' };
+    }
+
+    private removeIncompatibleLinks(matches: (link: LinkModel) => boolean): void {
+        const incompatible = this.links.filter((link) => matches(link) && !this.canExistingLinkRemain(link));
+        for (const link of incompatible) this.removeLinkInternal(link, true);
+    }
+
+    private canExistingLinkRemain(link: LinkModel): boolean {
+        const fromNode = this.nodes.find((node) => node.id === link.from);
+        const toNode = this.nodes.find((node) => node.id === link.to);
+        const fromPort = fromNode?.outPorts.find((port) => port.id === link.fromPort);
+        const toPort = toNode?.inPorts.find((port) => port.id === link.toPort);
+        if (fromNode === undefined || toNode === undefined || fromPort === undefined || toPort === undefined) {
+            return false;
+        }
+        if (!arePortTypesCompatible(fromPort.type, toPort.type, toPort.availableTypes)) return false;
+        return this.validator === null || this.validator({ fromNode, fromPort, toNode, toPort });
     }
     // Plug↔socket magnet: while dragging from an out-port, find the
     // nearest in-port (within SNAP_PX, screen space) the link is allowed
