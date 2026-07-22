@@ -1004,6 +1004,22 @@ test('runtime debugger state renders without entering document history', () => {
     assert.deepEqual(diagram.saveDocument(), before);
 });
 
+test('hovering a node highlights every connected wire like the desktop control', () => {
+    const { diagram, host } = makeDiagram();
+    diagram.load([source, sink], [
+        { from: 'source', fromPort: 'out', to: 'sink', toPort: 'in' },
+    ]);
+    const internals = diagram as unknown as {
+        draw(): void;
+        hoverNode: ReturnType<typeof diagram.findNode>;
+    };
+    host.canvas!.strokeStyles.length = 0;
+    internals.hoverNode = diagram.findNode('source');
+    internals.draw();
+
+    assert.ok(host.canvas!.strokeStyles.includes('#cfe3ff'));
+});
+
 test('runtime errors flash the border and expose tooltip text', () => {
     const { diagram, host } = makeDiagram();
     diagram.load([{ ...source, id: 'failed' }], []);

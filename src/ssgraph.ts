@@ -2437,6 +2437,7 @@ export class Diagram {
         // Links first. Each link jumps over the verticals of the links
         // drawn before it (deterministic bridge — Link.JumpOver parity).
         const prior: Seg[] = [];   // segments of links already drawn
+        const hoveredNode = this.hoverPort?.node ?? this.hoverNode;
         for (const l of this.links) {
             const a = this.endpoint(l, 'from');
             const b = this.endpoint(l, 'to');
@@ -2445,7 +2446,10 @@ export class Diagram {
             const baseColor = fp ? this.portColor(fp.type) : '#7d828a';
             const state = options.selection && l === this.selectedLink
                 ? 'sel'
-                : options.transient && l === this.hoveredLink ? 'hov' : 'norm';
+                : options.transient && (l === this.hoveredLink
+                    || (hoveredNode !== null && (l.from === hoveredNode.id || l.to === hoveredNode.id)))
+                    ? 'hov'
+                    : 'norm';
             const color = state === 'sel' ? '#4aa3ff' : state === 'hov' ? '#cfe3ff' : baseColor;
             const width = state === 'sel' ? 3 : state === 'hov' ? 2.6 : 2;
             const pts = this.routeLink(a, b, new Set([l.from, l.to]));
