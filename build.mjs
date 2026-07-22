@@ -8,9 +8,13 @@ import { build } from 'esbuild';
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, 'dist');
+const demoDist = join(here, 'demo', 'dist');
 
-// The target is a fixed child of this repository, never a caller-provided path.
-await rm(dist, { recursive: true, force: true });
+// The targets are fixed children of this repository, never caller-provided paths.
+await Promise.all([
+    rm(dist, { recursive: true, force: true }),
+    rm(demoDist, { recursive: true, force: true }),
+]);
 
 await execFileAsync(
     process.execPath,
@@ -40,7 +44,7 @@ const targets = [
     },
     {
         entryPoints: [join(here, 'examples', 'basic.ts')],
-        outfile: join(dist, 'demo.js'),
+        outfile: join(demoDist, 'demo.js'),
     },
 ];
 

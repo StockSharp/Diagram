@@ -1,7 +1,6 @@
 import type { JsonObject } from '../core/model.js';
 
 // Core data model — node/port catalog (palette) and the live diagram (DiagramNode + Link).
-// Mirrors the contract described in WebTemp/task.txt.
 
 export interface PortTypeInit {
     name: string;
@@ -93,8 +92,7 @@ export interface ParamSchema {
     min: number | null;
     max: number | null;
     displayOrder: number;
-    /// Section header in the Properties panel. Mirrors DisplayAttribute.GroupName
-    /// from Diagram.Core. Empty → "General".
+    /// Section header in the Properties panel. Empty means "General".
     category: string;
     /// SetBasic(true) on the desktop param. Basic ones surface above the fold;
     /// advanced ones live below a collapsible divider.
@@ -266,8 +264,8 @@ export interface PortData {
     /// Whitelist of socket-type names accepted in addition to <c>type</c>.
     /// Mirrors Port.availableTypes — needed at link-time on the diagram side.
     availableTypes?: string[];
-    /// Dynamic-port flag (Diagram.Core parity). When combined with
-    /// <c>dynamicMode === 'onConnect'</c>, the anchor port spawns a sibling
+    /// Dynamic-port flag. When combined with <c>dynamicMode === 'onConnect'</c>,
+    /// the anchor port spawns a sibling
     /// on each link drop and the link is rerouted to the sibling.
     isDynamic?: boolean;
     dynamicMode?: string;

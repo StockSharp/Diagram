@@ -9,7 +9,6 @@ export interface DiagramActionState<TId extends string> {
     enabled: boolean;
 }
 export declare class DiagramActionRegistry<TId extends string, TContext> {
-    private readonly actions;
     register(action: DiagramAction<TId, TContext>): () => void;
     get(id: TId): DiagramAction<TId, TContext> | null;
     states(context: TContext): DiagramActionState<TId>[];
@@ -46,11 +45,6 @@ export interface DiagramHistoryState {
 }
 export type DiagramHistoryListener = (state: DiagramHistoryState) => void;
 export declare class DiagramCommandHistory {
-    private readonly listener?;
-    private readonly undoCommands;
-    private readonly redoCommands;
-    private readonly transactions;
-    private replaying;
     constructor(listener?: DiagramHistoryListener | undefined);
     get state(): DiagramHistoryState;
     execute(command: DiagramCommand): void;
@@ -60,8 +54,6 @@ export declare class DiagramCommandHistory {
     undo(): boolean;
     redo(): boolean;
     clear(): void;
-    private replay;
-    private notify;
 }
 
 // FILE: core/model.d.ts
@@ -424,8 +416,6 @@ export interface CatalogEvents extends Record<string, unknown> {
     nodeTypesChanged: Node[];
 }
 export declare class StockSharpCatalog extends EventEmitter<CatalogEvents> {
-    private readonly portTypes;
-    private readonly nodeTypes;
     addPortType(portType: PortType | PortTypeInit): void;
     removePortType(name: string): void;
     getPortType(name: string): PortType | null;
@@ -439,7 +429,6 @@ export declare class StockSharpCatalog extends EventEmitter<CatalogEvents> {
 // FILE: diagram/event-emitter.d.ts
 export type EventHandler<T> = (payload: T) => void;
 export declare class EventEmitter<TEvents extends Record<string, unknown>> {
-    private readonly handlers;
     on<K extends keyof TEvents>(event: K, handler: EventHandler<TEvents[K]>): () => void;
     off<K extends keyof TEvents>(event: K, handler: EventHandler<TEvents[K]>): void;
     protected emit<K extends keyof TEvents>(event: K, payload: TEvents[K]): void;
@@ -480,14 +469,6 @@ export declare const PALETTE_DRAG_MIME = "application/x-stocksharp-node";
  * and context-menu actions mean by subscribing to the typed events.
  */
 export declare class StockSharpPalette extends EventEmitter<PaletteEvents> {
-    private readonly host;
-    private readonly catalog;
-    private readonly unsubscribeCatalog;
-    private filter;
-    private collapsed;
-    private excludedTypeIds;
-    private selectedTypeId;
-    private destroyed;
     constructor({ div, catalog, excludedTypeIds }: PaletteOptions);
     setFilter(text: string): void;
     collapseAll(): void;
@@ -499,15 +480,6 @@ export declare class StockSharpPalette extends EventEmitter<PaletteEvents> {
     getSelectedNodeType(): Node | null;
     selectNodeType(typeId: string | null): boolean;
     destroy(): void;
-    private groupNames;
-    private visibleNodeTypes;
-    private visibleNodeType;
-    private render;
-    private reconcileSelection;
-    private renderGroup;
-    private renderItem;
-    private applyFilter;
-    private syncSelectionClass;
 }
 
 // FILE: diagram/stocksharp-diagram.d.ts
@@ -518,26 +490,6 @@ import { EventEmitter } from './event-emitter.js';
 import type { DiagramEvents, ContextCommand, DiagramLoadOptions, DiagramGridSettings, DiagramOptions, DiagramScreenshotOptions, DiagramThemeOptions, LinkValidator, NodeErrorKind, NodeErrorOptions } from './api.js';
 import { DiagramNode, Link, Port, type PortDirection, type PortUpdate } from './types.js';
 export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
-    private readonly div;
-    private readonly catalog;
-    private readonly fullscreenElement;
-    private readonly fullscreenDocument;
-    private readonly fullscreenButton;
-    private readonly overviewContainer;
-    private readonly zoomLabel;
-    private readonly canvas;
-    private readonly clipboard;
-    private readonly disposables;
-    private idCounter;
-    private undoEnabled;
-    private redoEnabled;
-    private helpEnabled;
-    private loading;
-    private destroyed;
-    private fullscreen;
-    private fullscreenButtonVisible;
-    private linkValidator;
-    private readonly contextActions;
     constructor(options: DiagramOptions);
     /** Direct renderer controller. It replaces the old go-compatible escape hatch. */
     get renderer(): CanvasDiagram;
@@ -652,25 +604,6 @@ export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     loadDocument(document: DiagramDocument | string, options?: DiagramLoadOptions): void;
     saveDocument(): DiagramDocument;
     destroy(): void;
-    private handleFullscreenChange;
-    private prepareFullscreenButtonHost;
-    private createFullscreenButton;
-    private updateFullscreenButton;
-    private bindCanvasEvents;
-    private registerContextActions;
-    private contextActionContext;
-    private toCanvasNode;
-    private fromCanvasNode;
-    private fromCanvasInit;
-    private toCanvasPort;
-    private fromCanvasPort;
-    private fromCanvasPortInit;
-    private toCanvasLink;
-    private fromCanvasLink;
-    private portTypeColors;
-    private updateZoomLabel;
-    private resolveClipboard;
-    private generateNodeId;
 }
 
 // FILE: diagram/types.d.ts
@@ -1211,11 +1144,6 @@ declare class ModelBridge {
     readonly diagram: Diagram;
     readonly ss: SsDiagram;
     model: GraphLinksModel;
-    private modelListeners;
-    private diagramListeners;
-    private syncingFromSs;
-    private liveNodes;
-    private liveLinks;
     constructor(diagram: Diagram, ss: SsDiagram, model: GraphLinksModel);
     attachModel(model: GraphLinksModel, sync?: boolean): void;
     fireChange(change: unknown, modelChange: string, oldValue: unknown, newValue: unknown, isTransactionFinished: boolean): void;
@@ -1233,12 +1161,8 @@ declare class ModelBridge {
     onLinkRemoved(data: LinkDataAny, fromSs: boolean): void;
     onDataPropertyChanged(data: Record<string, unknown>, name: string, _value: unknown): void;
     onPortArrayMutated(arr: unknown[]): void;
-    private findSsNode;
-    private nodeDataToInit;
-    private nodeModelToData;
 }
 declare class CommandHandler {
-    private readonly bridge;
     constructor(bridge: ModelBridge);
     canUndo(): boolean;
     canRedo(): boolean;
@@ -1271,13 +1195,11 @@ declare class Diagram {
     readonly div: HTMLElement;
     readonly ss: SsDiagram;
     readonly _bridge: ModelBridge;
-    private _model;
     get model(): GraphLinksModel;
     set model(value: GraphLinksModel);
     commandHandler: CommandHandler;
     toolManager: ToolManager;
     scale: number;
-    private _isReadOnly;
     get isReadOnly(): boolean;
     set isReadOnly(value: boolean);
     allowDrop: boolean;
@@ -1305,7 +1227,6 @@ declare class Diagram {
         isInTransaction: boolean;
     };
     constructor(host: HTMLElement, _opts: Record<string, unknown>);
-    private findPortData;
     set nodeTemplate(t: unknown);
     get nodeTemplate(): unknown;
     set linkTemplate(t: unknown);
@@ -1644,90 +1565,19 @@ export declare class LinkModel {
     };
 }
 export declare class Diagram {
-    private readonly host;
-    private readonly canvas;
-    private ctx;
-    private readonly opts;
-    private nodes;
-    private links;
-    private idSeq;
-    private linkSeq;
-    private documentMetadata;
-    private runtimeState;
-    private runtimePulse;
-    private globalErrorFlashStart;
-    private scale;
-    private offX;
-    private offY;
-    private width;
-    private height;
-    private dpr;
-    private drawScheduled;
-    private gridSnapEnabled;
-    private gridSize;
-    private selectedNode;
-    private selectedNodes;
-    private selectedLink;
-    private selectedPort;
-    private dragNode;
-    private dragStart;
-    private dragAnchor;
-    private dragDX;
-    private dragDY;
-    private panning;
-    private panX;
-    private panY;
-    private permissions;
-    private showNodeMessages;
-    private iconCache;
-    private rubber;
-    private clip;
-    private linking;
-    private relinking;
-    private relinkCandidate;
-    private linkSnap;
-    private cursor;
-    private hoverPort;
-    private hoverNode;
-    private hoveredLink;
-    private tipTimer;
-    private tipShow;
-    private tipTarget;
-    private lpTimer;
-    private lpStart;
-    private readonly lpDelayMs;
-    private readonly lpMoveTol;
-    private readonly history;
-    private readonly domDisposables;
-    private destroyed;
-    private introStart;
-    private overviewVisible;
-    private ovDragging;
-    private ovGeo;
-    private validator;
-    private handlers;
     constructor(opts: DiagramOptions);
     on<K extends EvName>(ev: K, h: (p: DiagramEvents[K]) => void): () => void;
-    private emit;
     setLinkValidator(fn: LinkValidator | null): void;
     setGridSnap(enabled: boolean, size?: number): void;
     getGridSnap(): {
         enabled: boolean;
         size: number;
     };
-    private normalizeGridSize;
-    private nextNodeId;
-    private nextLinkId;
     addDiagramNode(init: DiagramNodeInit): string;
-    private doAddNode;
     removeDiagramNode(id: string): void;
-    private doRemoveNode;
     moveNode(id: string, x: number, y: number): void;
     nudgeSelection(dx: number, dy: number): boolean;
-    private doMoveNode;
     addLink(init: LinkInit): boolean;
-    private addLinkApplied;
-    private doAddLink;
     removeLink(link: {
         id?: string;
         from: string;
@@ -1735,21 +1585,15 @@ export declare class Diagram {
         to: string;
         toPort: string;
     }): void;
-    private removeLinkInternal;
-    private doRemoveLink;
-    private createDynamicSibling;
-    private pruneDynamicSibling;
     canUndo(): boolean;
     canRedo(): boolean;
     undo(): void;
     redo(): void;
     cutSelection(): void;
     withTransaction<T>(label: string, fn: () => T): T;
-    private record;
     deleteSelection(): void;
     clear(): void;
     relink(linkId: string, next: Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>): LinkValidationResult;
-    private doRelink;
     addPort(nodeId: string, direction: PortDirection, init: PortInit): boolean;
     removePort(nodeId: string, direction: PortDirection, portId: string): boolean;
     updatePortType(nodeId: string, direction: PortDirection, portId: string, type: string): boolean;
@@ -1758,9 +1602,6 @@ export declare class Diagram {
     updateNode(nodeId: string, patch: Partial<Pick<DiagramNodeInit, 'name' | 'description' | 'color' | 'border' | 'message' | 'openAction'>>): boolean;
     setNodeParamValue(nodeId: string, name: string, value: string | undefined): boolean;
     setShowNodeMessages(show: boolean): void;
-    private updateNodeState;
-    private applyNodeSnapshot;
-    private reconcileSelectedPort;
     load(nodes: DiagramNodeInit[], links: LinkInit[]): void;
     save(): DiagramSnapshot;
     loadDocument(source: DiagramDocument | string): void;
@@ -1780,8 +1621,6 @@ export declare class Diagram {
      * the whole graph without changing the visible viewport.
      */
     takeScreenshot(options?: DiagramScreenshotOptions): HTMLCanvasElement;
-    private positiveScreenshotNumber;
-    private nonNegativeScreenshotNumber;
     getRuntimeState(): DiagramRuntimeState;
     setRuntimeState(state: DiagramRuntimeState): void;
     clearRuntimeState(): void;
@@ -1790,7 +1629,6 @@ export declare class Diagram {
     setGlobalError(message: string | null, kind?: DiagramGlobalErrorKind): void;
     setNodeError(id: string, message: string, options?: NodeErrorOptions): boolean;
     clearNodeError(id: string, kind?: NodeErrorKind): boolean;
-    private emitRuntimeStateChanged;
     viewToWorld(sx: number, sy: number): [number, number];
     selectNodeById(id: string | null): void;
     setZoom(scale: number): void;
@@ -1807,37 +1645,13 @@ export declare class Diagram {
         overviewViewportColor?: string;
         overviewViewportFill?: string;
     }): void;
-    private graphBounds;
     resize(w: number, h: number): void;
     getInteractionPermissions(): DiagramInteractionPermissions;
     setInteractionPermissions(patch: Partial<DiagramInteractionPermissions>): void;
     /** View-only mode keeps selection, inspection and copy enabled. */
     setReadOnly(value: boolean): void;
     destroy(): void;
-    private layoutNode;
-    private relayout;
-    private toScreen;
-    private toWorld;
-    private portColor;
-    private portAt;
-    private selectedLinkEndpointAt;
-    private directRelinkAtPort;
-    private nodeAt;
-    private obstaclesFor;
-    private routeLink;
-    private linkAt;
-    private endpoint;
     validateLink(init: Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>, excludeLinkId?: string): LinkValidationResult;
-    private validateLinkModels;
-    private removeIncompatibleLinks;
-    private canExistingLinkRemain;
-    private findSnap;
-    private selectNode;
-    private toggleSelect;
-    private setSelection;
-    private selectLink;
-    private selectPort;
-    private emitSelectionChanged;
     copySelection(): void;
     copySelectionDocument(): DiagramDocument | null;
     hasClipboard(): boolean;
@@ -1848,29 +1662,6 @@ export declare class Diagram {
         x: number;
         y: number;
     }): string[];
-    private cancelLongPress;
-    private fireContextMenu;
-    private listen;
-    private bind;
-    private scheduleDraw;
-    private draw;
-    private drawGlobalError;
-    private drawTooltip;
-    private wrapTooltip;
-    private drawGrid;
-    private getIcon;
-    private drawNode;
-    private drawPort;
-    private portRuntimeState;
-    private strokeRoute;
-    private drawArrow;
-    private drawSelectedLinkEndpoints;
-    private drawPendingLink;
-    private overviewRect;
-    private drawOverview;
-    private ovHit;
-    private ovPanTo;
-    private emitViewChanged;
 }
 export declare const version = "0.1.0";
 export {};

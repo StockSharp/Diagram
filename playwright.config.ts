@@ -5,7 +5,6 @@ const port = 8792;
 export default defineConfig({
     testDir: './tests/browser',
     outputDir: './test-results',
-    snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{projectName}/{arg}{ext}',
     fullyParallel: false,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 1 : 0,
@@ -15,13 +14,6 @@ export default defineConfig({
         { name: 'chromium-dpr1', use: { deviceScaleFactor: 1 } },
         { name: 'chromium-dpr2', use: { deviceScaleFactor: 2 } },
     ],
-    expect: {
-        timeout: 5_000,
-        toHaveScreenshot: {
-            animations: 'disabled',
-            maxDiffPixelRatio: 0.002,
-        },
-    },
     use: {
         baseURL: `http://127.0.0.1:${port}`,
         browserName: 'chromium',

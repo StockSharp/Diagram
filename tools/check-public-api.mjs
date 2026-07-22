@@ -25,7 +25,7 @@ try {
     const files = await declarationFiles(temp);
     const generated = (await Promise.all(files.map(async (path) => {
         const name = relative(temp, path).split(sep).join('/');
-        const contents = normalize(await readFile(path, 'utf8')).trimEnd();
+        const contents = publicDeclarations(await readFile(path, 'utf8')).trimEnd();
         return `// FILE: ${name}\n${contents}\n`;
     }))).join('\n');
 
@@ -64,4 +64,11 @@ async function declarationFiles(directory) {
 
 function normalize(value) {
     return value.replaceAll('\r\n', '\n');
+}
+
+function publicDeclarations(value) {
+    return normalize(value)
+        .split('\n')
+        .filter((line) => !/^\s+private(?:\s|$)/.test(line))
+        .join('\n');
 }

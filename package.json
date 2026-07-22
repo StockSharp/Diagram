@@ -91,7 +91,6 @@
     "build:tests": "node build-tests.mjs",
     "test": "npm run typecheck && npm run api:check && npm run build:tests && node --test \"tests/_dist/**/*.test.cjs\"",
     "test:browser": "npm run build && playwright test",
-    "test:browser:update": "npm run build && playwright test --update-snapshots",
     "pack:check": "npm run build && npm pack --dry-run"
   },
   "devDependencies": {
