@@ -14,6 +14,7 @@ import {
     type DiagramNodeInit as CanvasNodeInit,
     type LinkInit as CanvasLinkInit,
     type LinkModel,
+    type LinkValidationResult,
     type NodeModel,
     type PortInit as CanvasPortInit,
     type PortModel,
@@ -137,6 +138,14 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
 
     addLink(link: Link): boolean {
         return this.canvas.addLink(this.toCanvasLink(link));
+    }
+
+    validateLink(link: Link, excludeLinkId?: string): LinkValidationResult {
+        return this.canvas.validateLink(this.toCanvasLink(link), excludeLinkId);
+    }
+
+    relink(linkId: string, link: Link): LinkValidationResult {
+        return this.canvas.relink(linkId, this.toCanvasLink(link));
     }
 
     removeLink(link: Link): void {
@@ -446,6 +455,12 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
             this.canvas.on('linkRemoved', ({ link }) => {
                 if (!this.loading) this.emit('linkRemoved', { links: [this.fromCanvasLink(link)] });
             }),
+            this.canvas.on('linkRelinked', ({ link, previous }) => {
+                if (!this.loading) this.emit('linkRelinked', {
+                    link: this.fromCanvasLink(link),
+                    previous: this.fromCanvasLink(previous),
+                });
+            }),
             this.canvas.on('nodeSelected', ({ node, selected }) => {
                 if (node !== null) this.emit('nodeSelected', { node: this.fromCanvasNode(node), selected });
             }),
@@ -474,13 +489,14 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
             this.canvas.on('linkHover', ({ link, hovering }) => {
                 this.emit('linkHover', { link: this.fromCanvasLink(link), hovering });
             }),
-            this.canvas.on('linkValidation', ({ fromNode, from, toNode, to, allowed }) => {
+            this.canvas.on('linkValidation', ({ fromNode, from, toNode, to, allowed, reason }) => {
                 this.emit('linkValidation', {
                     fromNode: this.fromCanvasNode(fromNode),
                     fromPort: this.fromCanvasPort(from),
                     toNode: this.fromCanvasNode(toNode),
                     toPort: this.fromCanvasPort(to),
                     allowed,
+                    reason,
                 });
             }),
             this.canvas.on('nodeOpen', ({ node }) => {
@@ -566,10 +582,12 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
             links: document.links
                 .filter((link) => linkIds.has(link.id))
                 .map((link) => new Link({
+                    id: link.id,
                     outNode: link.from.nodeId,
                     outPort: link.from.portId,
                     inNode: link.to.nodeId,
                     inPort: link.to.portId,
+                    metadata: link.metadata,
                 })),
         };
     }
@@ -657,19 +675,23 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     private toCanvasLink(link: Link): CanvasLinkInit {
         const idOf = (value: string | { id: string }): string => typeof value === 'string' ? value : value.id;
         return {
+            id: link.id || undefined,
             from: idOf(link.outNode),
             fromPort: idOf(link.outPort),
             to: idOf(link.inNode),
             toPort: idOf(link.inPort),
+            metadata: link.metadata,
         };
     }
 
-    private fromCanvasLink(link: Pick<CanvasLinkInit, 'from' | 'fromPort' | 'to' | 'toPort'> | LinkModel): Link {
+    private fromCanvasLink(link: CanvasLinkInit | LinkModel): Link {
         return new Link({
+            id: link.id,
             outNode: link.from,
             outPort: link.fromPort,
             inNode: link.to,
             inPort: link.toPort,
+            metadata: link.metadata,
         });
     }
 

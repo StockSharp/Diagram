@@ -113,6 +113,24 @@ export interface LinkValidatorArgs {
 }
 export type LinkValidator = (args: LinkValidatorArgs) => boolean;
 
+export type LinkValidationReason =
+    | 'allowed'
+    | 'missing-link'
+    | 'missing-node'
+    | 'missing-port'
+    | 'same-node'
+    | 'invalid-direction'
+    | 'incompatible-type'
+    | 'duplicate-link'
+    | 'source-limit'
+    | 'target-limit'
+    | 'host-rejected';
+
+export interface LinkValidationResult {
+    allowed: boolean;
+    reason: LinkValidationReason;
+}
+
 export type NodeErrorKind = 'runtime' | 'load';
 
 export interface NodeErrorOptions {
@@ -131,9 +149,17 @@ export interface DiagramEvents {
     nodeHover: { node: NodeModel; hovering: boolean };
     linkAdded: { link: LinkModel };
     linkRemoved: { link: LinkModel };
+    linkRelinked: { link: LinkModel; previous: LinkInit & { id: string } };
     linkSelected: { link: LinkModel | null; selected: boolean };
     linkHover: { link: LinkModel; hovering: boolean };
-    linkValidation: { fromNode: NodeModel; from: PortModel; toNode: NodeModel; to: PortModel; allowed: boolean };
+    linkValidation: {
+        fromNode: NodeModel;
+        from: PortModel;
+        toNode: NodeModel;
+        to: PortModel;
+        allowed: boolean;
+        reason: LinkValidationReason;
+    };
     portSelected: { node: NodeModel; port: PortModel };
     portHover: { node: NodeModel; port: PortModel; hovering: boolean };
     nodeOpen: { node: NodeModel };
@@ -415,6 +441,7 @@ export class Diagram {
     private rubber: { x0: number; y0: number; x: number; y: number } | null = null;   // world rect
     private clip: DiagramDocument | null = null;
     private linking: { node: NodeModel; port: PortModel } | null = null;
+    private relinking: { link: LinkModel; end: 'from' | 'to' } | null = null;
     private linkSnap: { node: NodeModel; port: PortModel } | null = null;
     private cursor = { x: 0, y: 0 };           // screen
     private hoverPort: { node: NodeModel; port: PortModel } | null = null;
@@ -607,11 +634,10 @@ export class Diagram {
         const fp = fn.outPorts.find((p) => p.id === init.fromPort);
         const tp = tn.inPorts.find((p) => p.id === init.toPort);
         if (fp === undefined || tp === undefined) return false;
-        const allowed = this.canLink(fn, fp, tn, tp);
-        this.emit('linkValidation', { fromNode: fn, from: fp, toNode: tn, to: tp, allowed });
-        if (!allowed) return false;
+        const validation = this.validateLinkModels(fn, fp, tn, tp);
+        this.emit('linkValidation', { fromNode: fn, from: fp, toNode: tn, to: tp, ...validation });
+        if (!validation.allowed) return false;
         const link = new LinkModel(init.from, init.fromPort, init.to, init.toPort, init.id ?? this.nextLinkId(), init.metadata);
-        if (this.links.some((l) => l.key() === link.key())) return false;
         if (this.links.some((l) => l.id === link.id)) return false;
         this.links.push(link);
         this.emit('linkAdded', { link });
@@ -680,6 +706,46 @@ export class Diagram {
         this.selectedNode = null; this.selectedNodes.clear(); this.selectedLink = null; this.selectedPort = null;
         this.documentMetadata = {};
         this.history.clear();
+        this.scheduleDraw();
+    }
+    relink(
+        linkId: string,
+        next: Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>,
+    ): LinkValidationResult {
+        const link = this.links.find((candidate) => candidate.id === linkId);
+        if (link === undefined) return { allowed: false, reason: 'missing-link' };
+
+        const validation = this.validateLink(next, linkId);
+        const fromNode = this.nodes.find((node) => node.id === next.from);
+        const toNode = this.nodes.find((node) => node.id === next.to);
+        const fromPort = fromNode?.outPorts.find((port) => port.id === next.fromPort);
+        const toPort = toNode?.inPorts.find((port) => port.id === next.toPort);
+        if (fromNode !== undefined && toNode !== undefined && fromPort !== undefined && toPort !== undefined) {
+            this.emit('linkValidation', { fromNode, from: fromPort, toNode, to: toPort, ...validation });
+        }
+        if (!validation.allowed) return validation;
+
+        const before = link.toInit();
+        if (before.from === next.from && before.fromPort === next.fromPort
+            && before.to === next.to && before.toPort === next.toPort) return validation;
+        const after: LinkInit & { id: string } = { ...before, ...next };
+        this.doRelink(linkId, after);
+        this.record({
+            do: () => { this.doRelink(linkId, after); },
+            undo: () => { this.doRelink(linkId, before); },
+            label: 'relink',
+        });
+        return validation;
+    }
+    private doRelink(linkId: string, next: LinkInit & { id: string }): void {
+        const link = this.links.find((candidate) => candidate.id === linkId);
+        if (link === undefined) return;
+        const previous = link.toInit();
+        link.from = next.from;
+        link.fromPort = next.fromPort;
+        link.to = next.to;
+        link.toPort = next.toPort;
+        this.emit('linkRelinked', { link, previous });
         this.scheduleDraw();
     }
 
@@ -1168,30 +1234,89 @@ export class Diagram {
     }
 
     // ---- linking rules ----------------------------------------------
-    private canLink(fn: NodeModel, fp: PortModel, tn: NodeModel, tp: PortModel): boolean {
-        if (fn === tn) return false;
-        if (fp.direction !== 'out' || tp.direction !== 'in') return false;
-        // type compatibility: empty type = wildcard
-        if (fp.type !== '' && tp.type !== '' && fp.type !== tp.type) return false;
-        if (tp.maxLinks > 0) {
-            const used = this.links.filter((l) => l.to === tn.id && l.toPort === tp.id).length;
-            if (used >= tp.maxLinks) return false;
+    validateLink(init: Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>, excludeLinkId?: string): LinkValidationResult {
+        const fromNode = this.nodes.find((node) => node.id === init.from);
+        const toNode = this.nodes.find((node) => node.id === init.to);
+        if (fromNode === undefined || toNode === undefined) return { allowed: false, reason: 'missing-node' };
+        const fromPort = fromNode.outPorts.find((port) => port.id === init.fromPort);
+        const toPort = toNode.inPorts.find((port) => port.id === init.toPort);
+        if (fromPort === undefined || toPort === undefined) return { allowed: false, reason: 'missing-port' };
+        return this.validateLinkModels(fromNode, fromPort, toNode, toPort, excludeLinkId);
+    }
+
+    private validateLinkModels(
+        fromNode: NodeModel,
+        fromPort: PortModel,
+        toNode: NodeModel,
+        toPort: PortModel,
+        excludeLinkId?: string,
+    ): LinkValidationResult {
+        if (fromNode === toNode) return { allowed: false, reason: 'same-node' };
+        if (fromPort.direction !== 'out' || toPort.direction !== 'in') {
+            return { allowed: false, reason: 'invalid-direction' };
         }
-        if (this.validator !== null && !this.validator({ fromNode: fn, fromPort: fp, toNode: tn, toPort: tp })) return false;
-        return true;
+        const relevantLinks = this.links.filter((link) => link.id !== excludeLinkId);
+        if (relevantLinks.some((link) => link.from === fromNode.id
+            && link.fromPort === fromPort.id
+            && link.to === toNode.id
+            && link.toPort === toPort.id)) {
+            return { allowed: false, reason: 'duplicate-link' };
+        }
+        if (fromPort.maxLinks > 0) {
+            const used = relevantLinks.filter((link) => link.from === fromNode.id && link.fromPort === fromPort.id).length;
+            if (used >= fromPort.maxLinks) return { allowed: false, reason: 'source-limit' };
+        }
+        if (toPort.maxLinks > 0) {
+            const used = relevantLinks.filter((link) => link.to === toNode.id && link.toPort === toPort.id).length;
+            if (used >= toPort.maxLinks) return { allowed: false, reason: 'target-limit' };
+        }
+        if (fromPort.type !== '' && toPort.type !== '') {
+            const accepted = new Set([toPort.type, ...toPort.availableTypes]);
+            if (!accepted.has(fromPort.type)) return { allowed: false, reason: 'incompatible-type' };
+        }
+        if (this.validator !== null && !this.validator({ fromNode, fromPort, toNode, toPort })) {
+            return { allowed: false, reason: 'host-rejected' };
+        }
+        return { allowed: true, reason: 'allowed' };
     }
     // Plug↔socket magnet: while dragging from an out-port, find the
     // nearest in-port (within SNAP_PX, screen space) the link is allowed
     // to land on. Returns null when none is close → the pending link
     // detaches and follows the cursor again.
     private findSnap(): { node: NodeModel; port: PortModel } | null {
-        if (this.linking === null) return null;
-        const src = this.linking;
+        if (this.linking === null && this.relinking === null) return null;
+        let direction: PortDirection;
+        let accepts: (node: NodeModel, port: PortModel) => boolean;
+        if (this.linking !== null) {
+            const source = this.linking;
+            direction = 'in';
+            accepts = (node, port) => this.validateLinkModels(source.node, source.port, node, port).allowed;
+        } else {
+            const gesture = this.relinking!;
+            if (gesture.end === 'to') {
+                const sourceNode = this.nodes.find((node) => node.id === gesture.link.from);
+                const sourcePort = sourceNode?.outPorts.find((port) => port.id === gesture.link.fromPort);
+                if (sourceNode === undefined || sourcePort === undefined) return null;
+                direction = 'in';
+                accepts = (node, port) => this.validateLinkModels(
+                    sourceNode, sourcePort, node, port, gesture.link.id,
+                ).allowed;
+            } else {
+                const targetNode = this.nodes.find((node) => node.id === gesture.link.to);
+                const targetPort = targetNode?.inPorts.find((port) => port.id === gesture.link.toPort);
+                if (targetNode === undefined || targetPort === undefined) return null;
+                direction = 'out';
+                accepts = (node, port) => this.validateLinkModels(
+                    node, port, targetNode, targetPort, gesture.link.id,
+                ).allowed;
+            }
+        }
         let best: { node: NodeModel; port: PortModel } | null = null;
         let bestD = SNAP_PX;
         for (const n of this.nodes) {
-            for (const p of n.inPorts) {
-                if (!this.canLink(src.node, src.port, n, p)) continue;
+            const ports = direction === 'in' ? n.inPorts : n.outPorts;
+            for (const p of ports) {
+                if (!accepts(n, p)) continue;
                 const [sx, sy] = this.toScreen(p.cx, p.cy);
                 const dpx = Math.hypot(sx - this.cursor.x, sy - this.cursor.y);
                 if (dpx <= bestD) { bestD = dpx; best = { node: n, port: p }; }
@@ -1335,7 +1460,7 @@ export class Diagram {
             else if (link !== null && this.selectedLink !== link) this.selectLink(link);
         }
         this.dragNode = null; this.dragStart = []; this.rubber = null;
-        this.panning = false; this.linking = null; this.linkSnap = null;
+        this.panning = false; this.linking = null; this.relinking = null; this.linkSnap = null;
         this.scheduleDraw();
         this.emit('contextMenu', { x: pageX, y: pageY, link, node });
     }
@@ -1388,12 +1513,29 @@ export class Diagram {
             const portHit = this.portAt(wx, wy);
             if (portHit !== null) {
                 if (this.permissions.inspect) this.selectPort(portHit);
+                const selectedLink = this.selectedLink;
+                if (this.permissions.createLinks && selectedLink !== null) {
+                    const isFrom = portHit.port.direction === 'out'
+                        && selectedLink.from === portHit.node.id
+                        && selectedLink.fromPort === portHit.port.id;
+                    const isTo = portHit.port.direction === 'in'
+                        && selectedLink.to === portHit.node.id
+                        && selectedLink.toPort === portHit.port.id;
+                    if (isFrom || isTo) {
+                        this.relinking = { link: selectedLink, end: isFrom ? 'from' : 'to' };
+                        this.linking = null;
+                        this.linkSnap = null;
+                        this.cursor = { x: sx, y: sy };
+                        return;
+                    }
+                }
                 // Pressing ANY socket consumes the gesture — start a link
                 // from an out-port; for an in-port (link can't originate
                 // there) just do nothing. Never fall through to panning,
                 // so grabbing a socket never drags the whole schema.
                 if (this.permissions.createLinks && portHit.port.direction === 'out') {
                     this.linking = portHit;
+                    this.relinking = null;
                     this.linkSnap = null;
                     this.cursor = { x: sx, y: sy };
                 }
@@ -1468,7 +1610,11 @@ export class Diagram {
                 this.scheduleDraw();
                 return;
             }
-            if (this.linking !== null) { this.linkSnap = this.findSnap(); this.scheduleDraw(); return; }
+            if (this.linking !== null || this.relinking !== null) {
+                this.linkSnap = this.findSnap();
+                this.scheduleDraw();
+                return;
+            }
             if (!this.permissions.inspect) return;
             let dirty = false;
             // port hover
@@ -1572,6 +1718,26 @@ export class Diagram {
                 this.linkSnap = null;
                 this.scheduleDraw();
             }
+            if (this.relinking !== null) {
+                const gesture = this.relinking;
+                const [sx, sy] = localXY(e);
+                const [wx, wy] = this.toWorld(sx, sy);
+                const direct = this.portAt(wx, wy);
+                const expectedDirection: PortDirection = gesture.end === 'from' ? 'out' : 'in';
+                const target = this.linkSnap
+                    ?? (direct !== null && direct.port.direction === expectedDirection ? direct : null);
+                if (target !== null) {
+                    this.relink(gesture.link.id, {
+                        from: gesture.end === 'from' ? target.node.id : gesture.link.from,
+                        fromPort: gesture.end === 'from' ? target.port.id : gesture.link.fromPort,
+                        to: gesture.end === 'to' ? target.node.id : gesture.link.to,
+                        toPort: gesture.end === 'to' ? target.port.id : gesture.link.toPort,
+                    });
+                }
+                this.relinking = null;
+                this.linkSnap = null;
+                this.scheduleDraw();
+            }
         };
         this.listen(window, 'pointerup', finish);
         this.listen(window, 'pointercancel', finish);
@@ -1640,7 +1806,7 @@ export class Diagram {
                 pinchPivotW = this.toWorld(mx, my);
                 pinching = true;
                 this.dragNode = null; this.dragStart = [];
-                this.panning = false; this.rubber = null; this.linking = null;
+                this.panning = false; this.rubber = null; this.linking = null; this.relinking = null;
             }
         }, { passive: false });
         this.listen(this.canvas, 'touchmove', (e) => {
@@ -1735,7 +1901,7 @@ export class Diagram {
                 else if (y1 === y2 && x1 !== x2) prior.push({ h: true, c: y1, a: Math.min(x1, x2), b: Math.max(x1, x2) });
             }
         }
-        if (this.linking !== null) this.drawPendingLink();
+        if (this.linking !== null || this.relinking !== null) this.drawPendingLink();
         for (const n of this.nodes) this.drawNode(n, this.selectedNodes.has(n));
         if (this.rubber !== null) {
             const rx = Math.min(this.rubber.x0, this.rubber.x);
@@ -1756,7 +1922,7 @@ export class Diagram {
     }
     private drawTooltip(): void {
         if (!this.tipShow) return;   // wait out the hover delay
-        if (this.dragNode !== null || this.linking !== null || this.panning || this.ovDragging) return;
+        if (this.dragNode !== null || this.linking !== null || this.relinking !== null || this.panning || this.ovDragging) return;
         let text = '';
         let isError = false;
         if (this.hoverPort !== null) {
@@ -1974,30 +2140,55 @@ export class Diagram {
         ctx.restore();
     }
     private drawPendingLink(): void {
-        if (this.linking === null) return;
+        if (this.linking === null && this.relinking === null) return;
         const ctx = this.ctx;
-        const a: [number, number] = [this.linking.port.cx, this.linking.port.cy];
         const snapped = this.linkSnap;
-        const b: [number, number] = snapped
-            ? [snapped.port.cx, snapped.port.cy]
-            : this.toWorld(this.cursor.x, this.cursor.y) as [number, number];
-        const ex = new Set([this.linking.node.id]);
-        if (snapped) ex.add(snapped.node.id);
-        const pts = this.routeLink(a, b, ex);
-        ctx.strokeStyle = this.portColor(this.linking.port.type);
-        // Engaged → solid + thicker (locked into the socket); free →
-        // dashed, follows the cursor.
-        if (snapped) { ctx.setLineDash([]); ctx.lineWidth = 2.6; }
+        const cursor = this.toWorld(this.cursor.x, this.cursor.y) as [number, number];
+        let a: [number, number];
+        let b: [number, number];
+        let colorType = '';
+        let snapPoint: [number, number] | null = null;
+        const excludedNodes = new Set<string>();
+
+        if (this.linking !== null) {
+            a = [this.linking.port.cx, this.linking.port.cy];
+            b = snapped === null ? cursor : [snapped.port.cx, snapped.port.cy];
+            colorType = this.linking.port.type;
+            excludedNodes.add(this.linking.node.id);
+            if (snapped !== null) snapPoint = b;
+        } else {
+            const gesture = this.relinking!;
+            const fixed = this.endpoint(gesture.link, gesture.end === 'from' ? 'to' : 'from');
+            if (fixed === null) return;
+            const sourcePort = this.nodes.find((node) => node.id === gesture.link.from)?.outPorts
+                .find((port) => port.id === gesture.link.fromPort);
+            if (gesture.end === 'from') {
+                a = snapped === null ? cursor : [snapped.port.cx, snapped.port.cy];
+                b = fixed;
+                colorType = snapped?.port.type ?? sourcePort?.type ?? '';
+                excludedNodes.add(gesture.link.to);
+                if (snapped !== null) snapPoint = a;
+            } else {
+                a = fixed;
+                b = snapped === null ? cursor : [snapped.port.cx, snapped.port.cy];
+                colorType = sourcePort?.type ?? '';
+                excludedNodes.add(gesture.link.from);
+                if (snapped !== null) snapPoint = b;
+            }
+        }
+        if (snapped !== null) excludedNodes.add(snapped.node.id);
+        const points = this.routeLink(a, b, excludedNodes);
+        ctx.strokeStyle = this.portColor(colorType);
+        if (snapped !== null) { ctx.setLineDash([]); ctx.lineWidth = 2.6; }
         else { ctx.setLineDash([5, 4]); ctx.lineWidth = 2; }
         ctx.beginPath();
-        ctx.moveTo(pts[0][0], pts[0][1]);
-        for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.moveTo(points[0][0], points[0][1]);
+        for (let index = 1; index < points.length; index += 1) ctx.lineTo(points[index][0], points[index][1]);
         ctx.stroke();
         ctx.setLineDash([]);
-        if (snapped) {
-            // "clicked into place" ring on the target socket
+        if (snapPoint !== null) {
             ctx.beginPath();
-            ctx.arc(b[0], b[1], PORT_R + 4, 0, Math.PI * 2);
+            ctx.arc(snapPoint[0], snapPoint[1], PORT_R + 4, 0, Math.PI * 2);
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 2;
             ctx.stroke();

@@ -98,6 +98,10 @@ class FakeWindow {
     listenerCount(): number {
         return [...this.listeners.values()].reduce((total, handlers) => total + handlers.length, 0);
     }
+    dispatch(type: string, init: Record<string, unknown>): void {
+        const event = { type, preventDefault: () => undefined, ...init } as unknown as Event;
+        for (const listener of this.listeners.get(type) ?? []) listener(event);
+    }
 }
 
 function installDom(): FakeWindow {
@@ -243,6 +247,117 @@ test('link validation rejects incompatible port types', () => {
 
     assert.equal(added, false);
     assert.deepEqual(diagram.save().links, []);
+});
+
+test('link validation reports compatibility, duplicates and limits on both ends', () => {
+    const { diagram } = makeDiagram();
+    diagram.load([{
+        id: 'source-a',
+        name: 'Source A',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Decimal', maxLinks: 1 }],
+    }, {
+        id: 'source-b',
+        name: 'Source B',
+        outPorts: [{ id: 'out', name: 'Out', type: 'Decimal' }],
+    }, {
+        id: 'sink-a',
+        name: 'Sink A',
+        inPorts: [{ id: 'in', name: 'In', type: 'Number', availableTypes: ['Decimal'], maxLinks: 1 }],
+    }, {
+        id: 'sink-b',
+        name: 'Sink B',
+        inPorts: [{ id: 'in', name: 'In', type: 'Decimal' }],
+    }], []);
+
+    const first = { from: 'source-a', fromPort: 'out', to: 'sink-a', toPort: 'in' };
+    assert.deepEqual(diagram.validateLink(first), { allowed: true, reason: 'allowed' });
+    assert.equal(diagram.addLink(first), true);
+    assert.deepEqual(diagram.validateLink(first), { allowed: false, reason: 'duplicate-link' });
+    assert.deepEqual(diagram.validateLink({
+        from: 'source-a', fromPort: 'out', to: 'sink-b', toPort: 'in',
+    }), { allowed: false, reason: 'source-limit' });
+    assert.deepEqual(diagram.validateLink({
+        from: 'source-b', fromPort: 'out', to: 'sink-a', toPort: 'in',
+    }), { allowed: false, reason: 'target-limit' });
+
+    diagram.setLinkValidator(() => false);
+    assert.deepEqual(diagram.validateLink({
+        from: 'source-b', fromPort: 'out', to: 'sink-b', toPort: 'in',
+    }), { allowed: false, reason: 'host-rejected' });
+});
+
+test('relink preserves identity and metadata and is one reversible action', () => {
+    const { diagram } = makeDiagram();
+    diagram.load([{
+        id: 'source', name: 'Source', outPorts: [{ id: 'out', name: 'Out', type: 'number' }],
+    }, {
+        id: 'sink-a', name: 'Sink A', inPorts: [{ id: 'in', name: 'In', type: 'number' }],
+    }, {
+        id: 'sink-b', name: 'Sink B', inPorts: [{ id: 'in', name: 'In', type: 'number' }],
+    }], [{
+        id: 'stable-link',
+        from: 'source', fromPort: 'out', to: 'sink-a', toPort: 'in',
+        metadata: { hostLinkId: 42 },
+    }]);
+    const events: string[] = [];
+    diagram.on('linkRelinked', ({ link, previous }) => events.push(`${previous.to}->${link.to}`));
+
+    assert.deepEqual(diagram.relink('stable-link', {
+        from: 'source', fromPort: 'out', to: 'sink-b', toPort: 'in',
+    }), { allowed: true, reason: 'allowed' });
+    let link = diagram.saveDocument().links[0];
+    assert.equal(link.id, 'stable-link');
+    assert.equal(link.to.nodeId, 'sink-b');
+    assert.deepEqual(link.metadata, { hostLinkId: 42 });
+
+    diagram.undo();
+    link = diagram.saveDocument().links[0];
+    assert.equal(link.to.nodeId, 'sink-a');
+    diagram.redo();
+    assert.equal(diagram.saveDocument().links[0].to.nodeId, 'sink-b');
+    assert.deepEqual(events, ['sink-a->sink-b', 'sink-b->sink-a', 'sink-a->sink-b']);
+
+    assert.deepEqual(diagram.relink('stable-link', {
+        from: 'source', fromPort: 'missing', to: 'sink-a', toPort: 'in',
+    }), { allowed: false, reason: 'missing-port' });
+    assert.equal(diagram.saveDocument().links[0].to.nodeId, 'sink-b');
+    assert.deepEqual(diagram.relink('unknown', {
+        from: 'source', fromPort: 'out', to: 'sink-a', toPort: 'in',
+    }), { allowed: false, reason: 'missing-link' });
+});
+
+test('selected link endpoint can be dragged to another compatible port', () => {
+    const { diagram, host, fakeWindow } = makeDiagram();
+    diagram.load([{
+        id: 'source', name: 'Source', x: 20, y: 50,
+        outPorts: [{ id: 'out', name: 'Out', type: 'number' }],
+    }, {
+        id: 'sink-a', name: 'Sink A', x: 300, y: 20,
+        inPorts: [{ id: 'in', name: 'In', type: 'number' }],
+    }, {
+        id: 'sink-b', name: 'Sink B', x: 300, y: 180,
+        inPorts: [{ id: 'in', name: 'In', type: 'number' }],
+    }], [{ id: 'stable-link', from: 'source', fromPort: 'out', to: 'sink-a', toPort: 'in' }]);
+    diagram.selectLinkById('stable-link');
+
+    const renderer = diagram as unknown as {
+        findNode(id: string): { inPorts: Array<{ cx: number; cy: number }> } | undefined;
+        toScreen(x: number, y: number): [number, number];
+    };
+    const oldPort = renderer.findNode('sink-a')!.inPorts[0];
+    const newPort = renderer.findNode('sink-b')!.inPorts[0];
+    const [oldX, oldY] = renderer.toScreen(oldPort.cx, oldPort.cy);
+    const [newX, newY] = renderer.toScreen(newPort.cx, newPort.cy);
+    host.canvas!.dispatch('pointerdown', {
+        clientX: oldX, clientY: oldY, pointerId: 1, pointerType: 'mouse', button: 0,
+        shiftKey: false, ctrlKey: false, metaKey: false, altKey: false,
+    });
+    host.canvas!.dispatch('pointermove', { clientX: newX, clientY: newY });
+    fakeWindow.dispatch('pointerup', { clientX: newX, clientY: newY, shiftKey: false });
+
+    assert.equal(diagram.saveDocument().links[0].to.nodeId, 'sink-b');
+    diagram.undo();
+    assert.equal(diagram.saveDocument().links[0].to.nodeId, 'sink-a');
 });
 
 test('mutations participate in undo and redo', () => {

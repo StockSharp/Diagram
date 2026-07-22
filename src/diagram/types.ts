@@ -1,3 +1,5 @@
+import type { JsonObject } from '../core/model.js';
+
 // Core data model — node/port catalog (palette) and the live diagram (DiagramNode + Link).
 // Mirrors the contract described in WebTemp/task.txt.
 
@@ -221,23 +223,29 @@ export class DiagramNode extends Node {
 export type LinkEndpoint = string | { id: string };
 
 export interface LinkInit {
+    id?: string;
     outNode: LinkEndpoint;
     outPort: LinkEndpoint;
     inNode: LinkEndpoint;
     inPort: LinkEndpoint;
+    metadata?: JsonObject;
 }
 
 export class Link {
+    id: string;
     outNode: LinkEndpoint;
     outPort: LinkEndpoint;
     inNode: LinkEndpoint;
     inPort: LinkEndpoint;
+    metadata: JsonObject;
 
     constructor(init: LinkInit) {
+        this.id = init.id ?? '';
         this.outNode = init.outNode;
         this.outPort = init.outPort;
         this.inNode = init.inNode;
         this.inPort = init.inPort;
+        this.metadata = init.metadata ?? {};
     }
 }
 

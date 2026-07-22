@@ -102,6 +102,11 @@ export interface LinkChangePayload {
     links: Link[];
 }
 
+export interface LinkRelinkedPayload {
+    link: Link;
+    previous: Link;
+}
+
 export interface LoadFinishedPayload {
     nodes: DiagramNode[];
     links: Link[];
@@ -113,7 +118,11 @@ export interface LinkValidationPayload {
     toNode: DiagramNode;
     toPort: Port;
     allowed: boolean;
+    reason: LinkValidationReason;
 }
+
+export type LinkValidationReason = import('../ssgraph.js').LinkValidationReason;
+export type LinkValidationResult = import('../ssgraph.js').LinkValidationResult;
 
 export interface LinkValidatorArgs {
     fromNode: DiagramNode;
@@ -129,6 +138,7 @@ export interface DiagramEvents extends Record<string, unknown> {
     nodeRemoved: NodeChangePayload;
     linkAdded: LinkChangePayload;
     linkRemoved: LinkChangePayload;
+    linkRelinked: LinkRelinkedPayload;
     nodeMoved: NodeMovedPayload;
     nodeSelected: NodeSelectedPayload;
     nodeHover: NodeHoverPayload;
