@@ -176,8 +176,8 @@ function applyTheme(): void {
     document.querySelector<HTMLButtonElement>('#themeBtn')!.textContent = light ? '☾ Dark' : '☼ Light';
 }
 
-function reset(): void {
-    diagram.load(seedNodes(), seedLinks());
+function reset(nodeErrors: Readonly<Record<string, string>> = {}): void {
+    diagram.load(seedNodes(), seedLinks(), { nodeErrors });
     diagram.zoomToFit();
     setStatus('Strategy model reset.');
     updateState();
@@ -263,6 +263,12 @@ document.querySelector<HTMLButtonElement>('#fitBtn')!.addEventListener('click', 
 document.querySelector<HTMLButtonElement>('#runtimeErrorBtn')!.addEventListener('click', () => {
     diagram.setNodeError('orders', 'Order Builder failed: order volume is not configured.');
     setStatus('Runtime error highlighted on Buy on cross. Hover the node for details.');
+});
+document.querySelector<HTMLButtonElement>('#loadErrorBtn')!.addEventListener('click', () => {
+    reset({
+        slow: 'Scheme load failed for Slow SMA: the saved Period value is invalid.',
+    });
+    setStatus('Loaded a damaged scheme. Hover the red node for details.');
 });
 document.querySelector<HTMLButtonElement>('#themeBtn')!.addEventListener('click', () => {
     light = !light; applyTheme();

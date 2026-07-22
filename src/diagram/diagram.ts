@@ -37,9 +37,18 @@ export interface DiagramThemeOptions {
     overviewViewportFill?: string;
 }
 
+export type NodeErrorKind = 'runtime' | 'load';
+
 export interface NodeErrorOptions {
+    /** Runtime errors flash the border; load errors use a red background. */
+    kind?: NodeErrorKind;
     /** Runtime errors flash by default. Set false for an immediate red border. */
     animate?: boolean;
+}
+
+export interface DiagramLoadOptions {
+    /** Transient per-node errors discovered while parsing or restoring a scheme. */
+    nodeErrors?: Readonly<Record<string, string>>;
 }
 
 export interface ContextCommandPayload {
@@ -427,16 +436,16 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
 
     /**
      * Shows an error on a node without changing the persisted graph model.
-     * Runtime errors flash their border before settling on red. Hovering the
-     * node shows the message.
+     * Runtime errors flash their border before settling on red. Load errors
+     * use a red background. Hovering either state shows the message.
      */
     setNodeError(nodeId: string, message: string, options: NodeErrorOptions = {}): boolean {
         return this.diagram.ss.setNodeError(nodeId, message, options);
     }
 
-    /** Clears the current runtime error. */
-    clearNodeError(nodeId: string): boolean {
-        return this.diagram.ss.clearNodeError(nodeId);
+    /** Clears both error kinds by default, or just the requested kind. */
+    clearNodeError(nodeId: string, kind?: NodeErrorKind): boolean {
+        return this.diagram.ss.clearNodeError(nodeId, kind);
     }
 
     /// Persist a single param-value override onto the diagram node data so a
@@ -657,7 +666,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         this.suppressModelEvents = false;
     }
 
-    load(nodes: DiagramNode[], links: Link[]): void {
+    load(nodes: DiagramNode[], links: Link[], options: DiagramLoadOptions = {}): void {
         this.suppressModelEvents = true;
         // The diagram engine forbids replacing Diagram.model inside a
         // transaction. A debounced socket-refresh / port mutation from
@@ -680,6 +689,9 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         model.nodeDataArray = nodeDataArray;
         model.linkDataArray = linkDataArray;
         this.diagram.model = model;
+        for (const [nodeId, message] of Object.entries(options.nodeErrors ?? {})) {
+            this.diagram.ss.setNodeError(nodeId, message, { kind: 'load', animate: false });
+        }
         this.applyMessageVisibility();
         this.applySocketTheme();
         this.suppressModelEvents = false;

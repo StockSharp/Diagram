@@ -98,7 +98,7 @@ diagram.setTheme({
 See `examples/basic.ts` for catalog construction, the draggable palette,
 typed links, history, read-only mode, resize handling and theme switching.
 
-### Node actions and runtime errors
+### Node actions and errors
 
 Double-click handling is opt-in. Give only the node types controlled by the
 host a non-empty `openAction`, then dispatch that value from `nodeOpen`:
@@ -116,14 +116,25 @@ diagram.on('nodeOpen', ({ nodes }) => {
 });
 ```
 
-Runtime failures flash the node border before leaving it red. Hovering the
-node shows the full error text in a tooltip:
+Runtime failures flash the node border before leaving it red. Errors found
+while loading a scheme use a red background. Hovering either state shows the
+full error text in a tooltip:
 
 ```ts
 diagram.setNodeError('orders', 'Order volume is not configured.');
 
+diagram.load(nodes, links, {
+  nodeErrors: {
+    indicator_2: 'The saved Period value is invalid.',
+  },
+});
+
 diagram.clearNodeError('orders');
 ```
+
+Use `{ kind: 'load' }` with `setNodeError` to add a load-style error after the
+initial load. Errors applied through this API are transient and are not written
+by `save()`.
 
 ## Source-first consumption
 

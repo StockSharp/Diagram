@@ -166,9 +166,10 @@ declare namespace go {
             resize(width: number, height: number): void;
             requestRedraw(): void;
             setNodeError(nodeId: string, message: string, options?: {
+                kind?: 'runtime' | 'load';
                 animate?: boolean;
             }): boolean;
-            clearNodeError(nodeId: string): boolean;
+            clearNodeError(nodeId: string, kind?: 'runtime' | 'load'): boolean;
         };
         scale: number;
         isReadOnly: boolean;

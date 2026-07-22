@@ -157,6 +157,8 @@ export interface DiagramNodeInit extends NodeInit {
     y?: number;
     color?: string;
     border?: string;
+    /// Error restored with the scheme. It is rendered as a red node background
+    /// and exposed as the node tooltip by the canvas runtime.
     message?: string;
     /// Runtime-only flag — `true` for the red "missing from palette"
     /// placeholder. Never persisted: toDiagramPayload skips color/border/

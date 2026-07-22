@@ -239,6 +239,33 @@ test('runtime errors flash the border and expose tooltip text', () => {
     assert.equal(node.runtimeError, '');
 });
 
+test('load errors use a red background and expose tooltip text', () => {
+    const { diagram, host } = makeDiagram();
+    diagram.load([{ ...source, id: 'damaged', loadError: 'Saved scheme is damaged.' }], []);
+    const node = diagram.findNode('damaged')!;
+
+    assert.equal(node.loadError, 'Saved scheme is damaged.');
+    const internals = diagram as unknown as {
+        draw(): void;
+        drawTooltip(): void;
+        hoverNode: typeof node;
+        tipShow: boolean;
+        cursor: { x: number; y: number };
+    };
+    internals.draw();
+    assert.ok(host.canvas!.fillStyles.includes('#7d2632'));
+    assert.ok(host.canvas!.strokeStyles.includes('#f6465d'));
+
+    internals.hoverNode = node;
+    internals.tipShow = true;
+    internals.cursor = { x: 20, y: 20 };
+    internals.drawTooltip();
+    assert.ok(host.canvas!.drawnText.includes('Saved scheme is damaged.'));
+
+    assert.equal(diagram.clearNodeError('damaged', 'load'), true);
+    assert.equal(node.loadError, '');
+});
+
 test('legacy adapter publishes window.go and exposes a working selection count', async () => {
     installDom();
     const { default: go } = await import('../src/ssdiagram');
@@ -361,4 +388,33 @@ test('high-level host can apply and clear runtime node errors', async () => {
     assert.equal(canvas.findNode('failed')?.runtimeError, 'Calculation failed.');
     assert.equal(diagram.clearNodeError('failed'), true);
     assert.equal(canvas.findNode('failed')?.runtimeError, '');
+});
+
+test('high-level load errors remain transient', async () => {
+    installDom();
+    const {
+        DiagramNode,
+        StockSharpCatalog,
+        StockSharpDiagram,
+    } = await import('../src/index');
+
+    const host = new FakeHost();
+    const diagram = new StockSharpDiagram({
+        div: host as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+    });
+    diagram.load([new DiagramNode({
+        id: 'damaged',
+        name: 'Slow SMA',
+        x: 50,
+        y: 50,
+    })], [], {
+        nodeErrors: { damaged: 'Period could not be restored.' },
+    });
+
+    const canvas = diagram.goDiagram.ss as unknown as {
+        findNode(id: string): { loadError: string } | undefined;
+    };
+    assert.equal(canvas.findNode('damaged')?.loadError, 'Period could not be restored.');
+    assert.equal(diagram.save().nodes[0].message, '');
 });

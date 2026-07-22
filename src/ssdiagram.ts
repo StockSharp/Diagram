@@ -562,10 +562,18 @@ class ModelBridge {
 				if (name === 'border' && typeof nodeData.border === 'string' && nodeData.border.length > 0) ssNode.border = nodeData.border;
 				if (name === 'name' && typeof nodeData.name === 'string') ssNode.name = nodeData.name;
 				if (name === 'openAction') ssNode.openAction = typeof nodeData.openAction === 'string' ? nodeData.openAction : '';
+				if (name === 'message') {
+					this.ss.setNodeError(
+						nodeData.id,
+						typeof nodeData.message === 'string' ? nodeData.message : '',
+						{ kind: 'load', animate: false },
+					);
+				}
 				if (name === 'loc' && typeof nodeData.loc === 'string') {
 					const p = Point.parse(nodeData.loc);
 					ssNode.x = p.x; ssNode.y = p.y;
 				}
+				this.ss.requestRedraw();
 			}
 		}
 		this.fireChange('Property', name, null, _value, true);
@@ -610,6 +618,7 @@ class ModelBridge {
 			border: typeof data.border === 'string' && data.border.length > 0 ? data.border : undefined,
 			icon: typeof data.icon === 'string' ? data.icon : undefined,
 			openAction: typeof data.openAction === 'string' ? data.openAction : undefined,
+			loadError: typeof data.message === 'string' ? data.message : undefined,
 			x: loc.x,
 			y: loc.y,
 			inPorts: (data.inPorts ?? []).map(toInit),
@@ -626,6 +635,7 @@ class ModelBridge {
 			border: n.border,
 			icon: n.icon,
 			openAction: n.openAction,
+			message: n.loadError,
 			loc: `${n.x} ${n.y}`,
 			inPorts: n.inPorts.map((p) => ({ id: p.id, name: p.name, type: p.type, maxLinks: p.maxLinks, direction: 'in' })),
 			outPorts: n.outPorts.map((p) => ({ id: p.id, name: p.name, type: p.type, maxLinks: p.maxLinks, direction: 'out' })),

@@ -31,6 +31,8 @@ export interface DiagramNodeInit {
     outPorts?: PortInit[];
     /** Non-empty host action enables node double-click tracking. */
     openAction?: string;
+    /** Transient error discovered while loading a scheme. */
+    loadError?: string;
 }
 
 export interface LinkInit {
@@ -67,7 +69,11 @@ export interface LinkValidatorArgs {
 }
 export type LinkValidator = (args: LinkValidatorArgs) => boolean;
 
+export type NodeErrorKind = 'runtime' | 'load';
+
 export interface NodeErrorOptions {
+    /** Runtime errors flash the border; load errors use a red background. */
+    kind?: NodeErrorKind;
     /** Disable the initial runtime-error border flash. Defaults to true. */
     animate?: boolean;
 }
@@ -127,6 +133,7 @@ export class NodeModel {
     border: string;
     icon: string;
     openAction: string;
+    loadError: string;
     runtimeError = '';
     errorFlashStart: number | null = null;
     x: number;
@@ -144,6 +151,7 @@ export class NodeModel {
         this.border = init.border ?? '#8c8c8c';
         this.icon = init.icon ?? '';
         this.openAction = init.openAction ?? '';
+        this.loadError = init.loadError ?? '';
         this.x = typeof init.x === 'number' ? init.x : 0;
         this.y = typeof init.y === 'number' ? init.y : 0;
         this.inPorts = (init.inPorts ?? []).map((p) => new PortModel(p, 'in'));
@@ -178,6 +186,7 @@ const INTRO_MS = 520;        // entrance animation duration
 const INTRO_RISE = 70;       // px the scheme rises from below
 const ERROR_FLASH_MS = 1100;
 const ERROR_RED = '#f6465d';
+const ERROR_BACKGROUND = '#7d2632';
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
@@ -353,7 +362,7 @@ export class Diagram {
         const snapshot: DiagramNodeInit = {
             id, typeId: node.typeId, name: node.name,
             color: node.color, border: node.border,
-            icon: node.icon, openAction: node.openAction,
+            icon: node.icon, openAction: node.openAction, loadError: node.loadError,
             x: node.x, y: node.y,
             inPorts:  node.inPorts.map((p)  => ({ id: p.id, name: p.name, type: p.type, direction: p.direction })),
             outPorts: node.outPorts.map((p) => ({ id: p.id, name: p.name, type: p.type, direction: p.direction })),
@@ -559,18 +568,26 @@ export class Diagram {
     setNodeError(id: string, message: string, options: NodeErrorOptions = {}): boolean {
         const node = this.findNode(id);
         if (node === undefined) return false;
-        node.runtimeError = message;
-        node.errorFlashStart = message.length > 0 && options.animate !== false
-            ? performance.now()
-            : null;
+        const kind = options.kind ?? 'runtime';
+        if (kind === 'load') {
+            node.loadError = message;
+        } else {
+            node.runtimeError = message;
+            node.errorFlashStart = message.length > 0 && options.animate !== false
+                ? performance.now()
+                : null;
+        }
         this.scheduleDraw();
         return true;
     }
-    clearNodeError(id: string): boolean {
+    clearNodeError(id: string, kind?: NodeErrorKind): boolean {
         const node = this.findNode(id);
         if (node === undefined) return false;
-        node.runtimeError = '';
-        node.errorFlashStart = null;
+        if (kind === undefined || kind === 'runtime') {
+            node.runtimeError = '';
+            node.errorFlashStart = null;
+        }
+        if (kind === undefined || kind === 'load') node.loadError = '';
         this.scheduleDraw();
         return true;
     }
@@ -1260,8 +1277,9 @@ export class Diagram {
             text = p.type ? `${p.name}  ·  ${p.type}` : p.name;
         } else if (this.hoverNode !== null) {
             const n = this.hoverNode;
-            if (n.runtimeError.length > 0) {
-                text = n.runtimeError;
+            const errors = [n.runtimeError, n.loadError].filter((value) => value.length > 0);
+            if (errors.length > 0) {
+                text = errors.join('\n');
                 isError = true;
             } else {
                 text = n.typeId && n.typeId !== n.name ? `${n.name}   [${n.typeId}]` : n.name;
@@ -1335,14 +1353,15 @@ export class Diagram {
     }
     private drawNode(n: NodeModel, selected: boolean): void {
         const ctx = this.ctx;
+        const hasLoadError = n.loadError.length > 0;
         const hasRuntimeError = n.runtimeError.length > 0;
         roundRect(ctx, n.x, n.y, n.w, n.h, 6);
-        ctx.fillStyle = n.color;
+        ctx.fillStyle = hasLoadError ? ERROR_BACKGROUND : n.color;
         ctx.fill();
         ctx.lineWidth = selected ? 2 : 1.5;
         ctx.strokeStyle = selected ? '#4aa3ff' : n.border;
         ctx.stroke();
-        if (hasRuntimeError) {
+        if (hasLoadError || hasRuntimeError) {
             let alpha = 1;
             if (hasRuntimeError && n.errorFlashStart !== null) {
                 const elapsed = performance.now() - n.errorFlashStart;
@@ -1357,7 +1376,7 @@ export class Diagram {
             ctx.save();
             ctx.globalAlpha *= alpha;
             roundRect(ctx, n.x, n.y, n.w, n.h, 6);
-            ctx.lineWidth = 3;
+            ctx.lineWidth = hasRuntimeError ? 3 : 2;
             ctx.strokeStyle = ERROR_RED;
             ctx.stroke();
             ctx.restore();
@@ -1371,7 +1390,7 @@ export class Diagram {
         // Bold title centred on the light body (nudged right when an icon shows so
         // they don't overlap); ports are bare colour squares on the edges.
         const titleShift = n.icon ? iconW + 4 : 0;
-        ctx.fillStyle = '#1b1b1b';
+        ctx.fillStyle = hasLoadError ? '#ffffff' : '#1b1b1b';
         ctx.font = '600 12px Segoe UI, Tahoma, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
