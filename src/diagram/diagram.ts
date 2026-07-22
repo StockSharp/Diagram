@@ -37,6 +37,11 @@ export interface DiagramThemeOptions {
     overviewViewportFill?: string;
 }
 
+export interface NodeErrorOptions {
+    /** Runtime errors flash by default. Set false for an immediate red border. */
+    animate?: boolean;
+}
+
 export interface ContextCommandPayload {
     command: ContextCommand;
     nodes: DiagramNode[];
@@ -418,6 +423,20 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         this.diagram.model.setDataProperty(node.data, 'message', message);
         this.diagram.commitTransaction('update message');
         this.applyMessageVisibility();
+    }
+
+    /**
+     * Shows an error on a node without changing the persisted graph model.
+     * Runtime errors flash their border before settling on red. Hovering the
+     * node shows the message.
+     */
+    setNodeError(nodeId: string, message: string, options: NodeErrorOptions = {}): boolean {
+        return this.diagram.ss.setNodeError(nodeId, message, options);
+    }
+
+    /** Clears the current runtime error. */
+    clearNodeError(nodeId: string): boolean {
+        return this.diagram.ss.clearNodeError(nodeId);
     }
 
     /// Persist a single param-value override onto the diagram node data so a

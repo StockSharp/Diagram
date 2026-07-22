@@ -67,6 +67,11 @@ export interface LinkValidatorArgs {
 }
 export type LinkValidator = (args: LinkValidatorArgs) => boolean;
 
+export interface NodeErrorOptions {
+    /** Disable the initial runtime-error border flash. Defaults to true. */
+    animate?: boolean;
+}
+
 interface DiagramEvents {
     nodeAdded: { node: NodeModel };
     nodeRemoved: { node: NodeModel };
@@ -122,6 +127,8 @@ export class NodeModel {
     border: string;
     icon: string;
     openAction: string;
+    runtimeError = '';
+    errorFlashStart: number | null = null;
     x: number;
     y: number;
     inPorts: PortModel[];
@@ -169,6 +176,8 @@ const ZOOM_MIN = 0.15;
 const ZOOM_MAX = 4;
 const INTRO_MS = 520;        // entrance animation duration
 const INTRO_RISE = 70;       // px the scheme rises from below
+const ERROR_FLASH_MS = 1100;
+const ERROR_RED = '#f6465d';
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
@@ -547,6 +556,24 @@ export class Diagram {
     // private fields with `as unknown` from outside.
     findNode(id: string): NodeModel | undefined { return this.nodes.find((n) => n.id === id); }
     requestRedraw(): void { this.relayout(); this.scheduleDraw(); }
+    setNodeError(id: string, message: string, options: NodeErrorOptions = {}): boolean {
+        const node = this.findNode(id);
+        if (node === undefined) return false;
+        node.runtimeError = message;
+        node.errorFlashStart = message.length > 0 && options.animate !== false
+            ? performance.now()
+            : null;
+        this.scheduleDraw();
+        return true;
+    }
+    clearNodeError(id: string): boolean {
+        const node = this.findNode(id);
+        if (node === undefined) return false;
+        node.runtimeError = '';
+        node.errorFlashStart = null;
+        this.scheduleDraw();
+        return true;
+    }
     viewToWorld(sx: number, sy: number): [number, number] { return this.toWorld(sx, sy); }
     selectNodeById(id: string | null): void {
         const node = id === null ? null : (this.nodes.find((n) => n.id === id) ?? null);
@@ -1220,40 +1247,67 @@ export class Diagram {
         ctx.restore();
         this.drawOverview();
         this.drawTooltip();
-        if (this.introStart !== null) this.scheduleDraw();   // keep the entrance animating
+        if (this.introStart !== null || this.nodes.some((n) => n.errorFlashStart !== null))
+            this.scheduleDraw();   // keep entrance / error feedback animating
     }
     private drawTooltip(): void {
         if (!this.tipShow) return;   // wait out the hover delay
         if (this.dragNode !== null || this.linking !== null || this.panning || this.ovDragging) return;
         let text = '';
+        let isError = false;
         if (this.hoverPort !== null) {
             const p = this.hoverPort.port;
             text = p.type ? `${p.name}  ·  ${p.type}` : p.name;
         } else if (this.hoverNode !== null) {
             const n = this.hoverNode;
-            text = n.typeId && n.typeId !== n.name ? `${n.name}   [${n.typeId}]` : n.name;
+            if (n.runtimeError.length > 0) {
+                text = n.runtimeError;
+                isError = true;
+            } else {
+                text = n.typeId && n.typeId !== n.name ? `${n.name}   [${n.typeId}]` : n.name;
+            }
         } else {
             return;
         }
         const ctx = this.ctx;
         ctx.font = '11px Segoe UI, Tahoma, sans-serif';
-        const padX = 8;
-        const h = 21;
-        const w = ctx.measureText(text).width + padX * 2;
+        const padX = 9;
+        const padY = 6;
+        const lineH = 15;
+        const lines = this.wrapTooltip(text, 340);
+        const h = lines.length * lineH + padY * 2;
+        const w = Math.max(...lines.map((line) => ctx.measureText(line).width)) + padX * 2;
         let x = this.cursor.x + 14;
         let y = this.cursor.y + 18;
         if (x + w > this.width) x = this.width - w - 4;
         if (y + h > this.height) y = this.cursor.y - h - 10;
         roundRect(ctx, x, y, w, h, 4);
-        ctx.fillStyle = 'rgba(18,20,26,0.96)';
+        ctx.fillStyle = isError ? 'rgba(55,16,22,0.97)' : 'rgba(18,20,26,0.96)';
         ctx.fill();
         ctx.lineWidth = 1;
-        ctx.strokeStyle = '#3a3a46';
+        ctx.strokeStyle = isError ? ERROR_RED : '#3a3a46';
         ctx.stroke();
         ctx.fillStyle = '#e8e8ee';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
-        ctx.fillText(text, x + padX, y + h / 2 + 0.5);
+        lines.forEach((line, index) => {
+            ctx.fillText(line, x + padX, y + padY + lineH * index + lineH / 2);
+        });
+    }
+    private wrapTooltip(text: string, maxWidth: number): string[] {
+        const lines: string[] = [];
+        for (const paragraph of text.split(/\r?\n/)) {
+            const words = paragraph.split(/\s+/).filter(Boolean);
+            if (words.length === 0) { lines.push(''); continue; }
+            let line = words[0];
+            for (let i = 1; i < words.length; i += 1) {
+                const next = `${line} ${words[i]}`;
+                if (this.ctx.measureText(next).width <= maxWidth) line = next;
+                else { lines.push(line); line = words[i]; }
+            }
+            lines.push(line);
+        }
+        return lines.length > 0 ? lines : [''];
     }
     private drawGrid(): void {
         const ctx = this.ctx;
@@ -1281,12 +1335,33 @@ export class Diagram {
     }
     private drawNode(n: NodeModel, selected: boolean): void {
         const ctx = this.ctx;
+        const hasRuntimeError = n.runtimeError.length > 0;
         roundRect(ctx, n.x, n.y, n.w, n.h, 6);
         ctx.fillStyle = n.color;
         ctx.fill();
         ctx.lineWidth = selected ? 2 : 1.5;
         ctx.strokeStyle = selected ? '#4aa3ff' : n.border;
         ctx.stroke();
+        if (hasRuntimeError) {
+            let alpha = 1;
+            if (hasRuntimeError && n.errorFlashStart !== null) {
+                const elapsed = performance.now() - n.errorFlashStart;
+                if (elapsed >= ERROR_FLASH_MS) {
+                    n.errorFlashStart = null;
+                } else {
+                    // Three clear pulses before the border settles on red.
+                    alpha = 0.12 + 0.88 * (0.5 + 0.5 * Math.sin(
+                        elapsed / ERROR_FLASH_MS * Math.PI * 6 - Math.PI / 2));
+                }
+            }
+            ctx.save();
+            ctx.globalAlpha *= alpha;
+            roundRect(ctx, n.x, n.y, n.w, n.h, 6);
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = ERROR_RED;
+            ctx.stroke();
+            ctx.restore();
+        }
         // Element icon on the left, vertically centred (lazy-loaded, cached).
         const iconW = 18;
         if (n.icon) {

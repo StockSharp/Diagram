@@ -21,6 +21,7 @@ export type {
     LinkValidatorArgs,
     LoadFinishedPayload,
     NodeChangePayload,
+    NodeErrorOptions,
     NodeHoverPayload,
     NodeMovedPayload,
     NodeSelectedPayload,
@@ -84,6 +85,7 @@ export type {
     LinkInit as CanvasLinkInit,
     LinkValidator as CanvasLinkValidator,
     LinkValidatorArgs as CanvasLinkValidatorArgs,
+    NodeErrorOptions as CanvasNodeErrorOptions,
     PortDirection as CanvasPortDirection,
     PortInit as CanvasPortInit,
 } from './ssgraph.js';

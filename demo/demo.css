@@ -307,7 +307,7 @@ button, input { font: inherit; }
 }
 
 @media (max-width: 900px) {
-    .model-stats, #resetBtn, #readonlyBtn { display: none; }
+    .model-stats, #resetBtn, #readonlyBtn, .error-demo-btn { display: none; }
     .demo-header { gap: 6px; padding: 0 8px; }
     .tbtn { padding: 5px 8px; }
     .diagram-workspace { grid-template-columns: 190px minmax(0, 1fr); }

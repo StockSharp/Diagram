@@ -165,6 +165,10 @@ declare namespace go {
             setOverviewVisible(visible: boolean): void;
             resize(width: number, height: number): void;
             requestRedraw(): void;
+            setNodeError(nodeId: string, message: string, options?: {
+                animate?: boolean;
+            }): boolean;
+            clearNodeError(nodeId: string): boolean;
         };
         scale: number;
         isReadOnly: boolean;

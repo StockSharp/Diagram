@@ -260,6 +260,10 @@ document.querySelector<HTMLButtonElement>('#redoBtn')!.addEventListener('click',
     diagram.redo(); updateState();
 });
 document.querySelector<HTMLButtonElement>('#fitBtn')!.addEventListener('click', () => diagram.zoomToFit());
+document.querySelector<HTMLButtonElement>('#runtimeErrorBtn')!.addEventListener('click', () => {
+    diagram.setNodeError('orders', 'Order Builder failed: order volume is not configured.');
+    setStatus('Runtime error highlighted on Buy on cross. Hover the node for details.');
+});
 document.querySelector<HTMLButtonElement>('#themeBtn')!.addEventListener('click', () => {
     light = !light; applyTheme();
 });

@@ -10,11 +10,15 @@ class FakeCanvas {
     height = 0;
     removed = false;
     fillStyles: string[] = [];
+    strokeStyles: string[] = [];
+    drawnText: string[] = [];
     private readonly listeners = new Map<string, Array<EventListenerOrEventListenerObject>>();
 
     private readonly context = new Proxy({
+        globalAlpha: 1,
         measureText: (text: string) => ({ width: text.length * 7 }),
         setTransform: () => undefined,
+        fillText: (text: string) => { this.drawnText.push(text); },
     }, {
         get(target, property) {
             if (property in target) return target[property as keyof typeof target];
@@ -24,6 +28,8 @@ class FakeCanvas {
             (target as Record<PropertyKey, unknown>)[property] = value;
             if (property === 'fillStyle' && typeof value === 'string')
                 this.fillStyles.push(value);
+            if (property === 'strokeStyle' && typeof value === 'string')
+                this.strokeStyles.push(value);
             return true;
         },
     });
@@ -202,6 +208,37 @@ test('double-click is emitted only for nodes with an open action', () => {
     assert.deepEqual(opened, ['open']);
 });
 
+test('runtime errors flash the border and expose tooltip text', () => {
+    const { diagram, host } = makeDiagram();
+    diagram.load([{ ...source, id: 'failed' }], []);
+    const node = diagram.findNode('failed')!;
+
+    assert.equal(diagram.setNodeError('failed', 'Calculation failed.'), true);
+    assert.equal(node.runtimeError, 'Calculation failed.');
+    assert.notEqual(node.errorFlashStart, null);
+
+    node.errorFlashStart = performance.now() - 2000;
+    const internals = diagram as unknown as {
+        draw(): void;
+        drawTooltip(): void;
+        hoverNode: typeof node;
+        tipShow: boolean;
+        cursor: { x: number; y: number };
+    };
+    internals.draw();
+    assert.equal(node.errorFlashStart, null);
+    assert.ok(host.canvas!.strokeStyles.includes('#f6465d'));
+
+    internals.hoverNode = node;
+    internals.tipShow = true;
+    internals.cursor = { x: 20, y: 20 };
+    internals.drawTooltip();
+    assert.ok(host.canvas!.drawnText.includes('Calculation failed.'));
+
+    assert.equal(diagram.clearNodeError('failed'), true);
+    assert.equal(node.runtimeError, '');
+});
+
 test('legacy adapter publishes window.go and exposes a working selection count', async () => {
     installDom();
     const { default: go } = await import('../src/ssdiagram');
@@ -295,4 +332,33 @@ test('high-level host receives opt-in nodeOpen', async () => {
     const [hitX, hitY] = ss.toScreen(node.x + node.w / 2, node.y + node.h / 2);
     host.canvas!.dispatch('dblclick', { clientX: hitX, clientY: hitY });
     assert.deepEqual(opened, ['indicatorSettings']);
+});
+
+test('high-level host can apply and clear runtime node errors', async () => {
+    installDom();
+    const {
+        DiagramNode,
+        StockSharpCatalog,
+        StockSharpDiagram,
+    } = await import('../src/index');
+
+    const host = new FakeHost();
+    const diagram = new StockSharpDiagram({
+        div: host as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+    });
+    diagram.load([new DiagramNode({
+        id: 'failed',
+        name: 'Order Builder',
+        x: 50,
+        y: 50,
+    })], []);
+
+    const canvas = diagram.goDiagram.ss as unknown as {
+        findNode(id: string): { runtimeError: string } | undefined;
+    };
+    assert.equal(diagram.setNodeError('failed', 'Calculation failed.'), true);
+    assert.equal(canvas.findNode('failed')?.runtimeError, 'Calculation failed.');
+    assert.equal(diagram.clearNodeError('failed'), true);
+    assert.equal(canvas.findNode('failed')?.runtimeError, '');
 });

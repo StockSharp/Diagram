@@ -98,7 +98,7 @@ diagram.setTheme({
 See `examples/basic.ts` for catalog construction, the draggable palette,
 typed links, history, read-only mode, resize handling and theme switching.
 
-### Node actions
+### Node actions and runtime errors
 
 Double-click handling is opt-in. Give only the node types controlled by the
 host a non-empty `openAction`, then dispatch that value from `nodeOpen`:
@@ -114,6 +114,15 @@ diagram.on('nodeOpen', ({ nodes }) => {
   const node = nodes[0];
   if (node?.openAction === 'indicatorSettings') openIndicatorDialog(node);
 });
+```
+
+Runtime failures flash the node border before leaving it red. Hovering the
+node shows the full error text in a tooltip:
+
+```ts
+diagram.setNodeError('orders', 'Order volume is not configured.');
+
+diagram.clearNodeError('orders');
 ```
 
 ## Source-first consumption
