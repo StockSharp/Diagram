@@ -56,6 +56,17 @@ export interface DiagramSelection {
     primaryLinkId: string | null;
 }
 
+export interface DiagramInteractionPermissions {
+    select: boolean;
+    inspect: boolean;
+    copy: boolean;
+    moveNodes: boolean;
+    createLinks: boolean;
+    deleteSelection: boolean;
+    paste: boolean;
+    history: boolean;
+}
+
 export function createDiagramRuntimeState(): DiagramRuntimeState {
     return { activeNodeId: null, nodes: {}, globalError: null };
 }
@@ -82,6 +93,32 @@ export function createDiagramPortRuntimeState(): DiagramPortRuntimeState {
         breakpointActive: false,
         value: null,
         error: null,
+    };
+}
+
+export function createEditableDiagramPermissions(): DiagramInteractionPermissions {
+    return {
+        select: true,
+        inspect: true,
+        copy: true,
+        moveNodes: true,
+        createLinks: true,
+        deleteSelection: true,
+        paste: true,
+        history: true,
+    };
+}
+
+export function createReadOnlyDiagramPermissions(): DiagramInteractionPermissions {
+    return {
+        select: true,
+        inspect: true,
+        copy: true,
+        moveNodes: false,
+        createLinks: false,
+        deleteSelection: false,
+        paste: false,
+        history: false,
     };
 }
 

@@ -1,5 +1,9 @@
 import type { DiagramDocument } from '../core/model.js';
-import type { DiagramSelection, DiagramViewState } from '../core/state.js';
+import type {
+    DiagramInteractionPermissions,
+    DiagramSelection,
+    DiagramViewState,
+} from '../core/state.js';
 import {
     Diagram as CanvasDiagram,
     type DiagramNodeInit as CanvasNodeInit,
@@ -194,6 +198,14 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         this.canvas.setReadOnly(readonly);
     }
 
+    getInteractionPermissions(): DiagramInteractionPermissions {
+        return this.canvas.getInteractionPermissions();
+    }
+
+    setInteractionPermissions(patch: Partial<DiagramInteractionPermissions>): void {
+        this.canvas.setInteractionPermissions(patch);
+    }
+
     applySocketTheme(): void {
         this.canvas.setTypeColors(this.portTypeColors());
     }
@@ -230,6 +242,14 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
 
     selectNodes(nodeIds: readonly string[]): void {
         this.canvas.selectNodesById(nodeIds);
+    }
+
+    selectLink(linkId: string | null): void {
+        this.canvas.selectLinkById(linkId);
+    }
+
+    selectPort(nodeId: string, direction: PortDirection, portId: string): void {
+        this.canvas.selectPortById(nodeId, direction, portId);
     }
 
     resize(width: number, height: number): void {
@@ -369,12 +389,11 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
             }),
             this.canvas.on('nodeSelected', ({ node, selected }) => {
                 if (node !== null) this.emit('nodeSelected', { node: this.fromCanvasNode(node), selected });
-                this.emit('selectionChanged', this.canvas.getSelection());
             }),
             this.canvas.on('linkSelected', ({ link, selected }) => {
                 if (link !== null) this.emit('linkSelected', { link: this.fromCanvasLink(link), selected });
-                this.emit('selectionChanged', this.canvas.getSelection());
             }),
+            this.canvas.on('selectionChanged', (selection) => this.emit('selectionChanged', selection)),
             this.canvas.on('nodeHover', ({ node, hovering }) => {
                 this.emit('nodeHover', { node: this.fromCanvasNode(node), hovering });
             }),

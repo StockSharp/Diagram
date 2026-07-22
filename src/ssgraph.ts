@@ -18,8 +18,13 @@ import type {
     JsonValue,
 } from './core/model.js';
 import type {
+    DiagramInteractionPermissions,
     DiagramSelection,
     DiagramViewState,
+} from './core/state.js';
+import {
+    createEditableDiagramPermissions,
+    createReadOnlyDiagramPermissions,
 } from './core/state.js';
 
 export type PortDirection = 'in' | 'out';
@@ -141,6 +146,7 @@ export interface DiagramEvents {
     // Fires whenever the undo or redo stacks change so the host can
     // enable/disable Undo/Redo toolbar buttons live.
     undoStackChanged: { canUndo: boolean; canRedo: boolean };
+    selectionChanged: DiagramSelection;
 }
 // One reversible operation. `do` re-applies it (redo), `undo` reverses
 // it. Both must be idempotent w.r.t. repeated undo/redo. label is for
@@ -394,6 +400,7 @@ export class Diagram {
     private selectedNode: NodeModel | null = null;          // primary (last) selected
     private selectedNodes = new Set<NodeModel>();           // multi-selection
     private selectedLink: LinkModel | null = null;
+    private selectedPort: { node: NodeModel; port: PortModel } | null = null;
     private dragNode: NodeModel | null = null;
     private dragStart: Array<{ n: NodeModel; x: number; y: number }> = [];   // group-drag origin
     private dragAnchor = { wx: 0, wy: 0 };
@@ -402,7 +409,7 @@ export class Diagram {
     private panning = false;
     private panX = 0;
     private panY = 0;
-    private readOnly = false;                                 // view-only: pan/zoom navigation, no editing
+    private permissions = createEditableDiagramPermissions();
     private showNodeMessages = true;
     private iconCache = new Map<string, HTMLImageElement | null>();   // node icon images by URL (null = loading/failed)
     private rubber: { x0: number; y0: number; x: number; y: number } | null = null;   // world rect
@@ -422,6 +429,8 @@ export class Diagram {
     private readonly lpDelayMs = 550;
     private readonly lpMoveTol = 7;
     private readonly history: DiagramCommandHistory;
+    private readonly domDisposables: Array<() => void> = [];
+    private destroyed = false;
 
     // overview minimap (go.Overview parity)
     private introStart: number | null = null;
@@ -535,7 +544,21 @@ export class Diagram {
         const removedLinks = this.links.filter((l) => l.from === id || l.to === id);
         this.links = this.links.filter((l) => l.from !== id && l.to !== id);
         this.nodes = this.nodes.filter((n) => n !== node);
-        if (this.selectedNode === node) this.selectNode(null);
+        let selectionChanged = this.selectedNodes.delete(node);
+        if (this.selectedNode === node) {
+            const remaining = [...this.selectedNodes];
+            this.selectedNode = remaining[remaining.length - 1] ?? null;
+            selectionChanged = true;
+        }
+        if (this.selectedPort?.node === node) {
+            this.selectedPort = null;
+            selectionChanged = true;
+        }
+        if (this.selectedLink !== null && removedLinks.includes(this.selectedLink)) {
+            this.selectedLink = null;
+            selectionChanged = true;
+        }
+        if (selectionChanged) this.emitSelectionChanged();
         for (const l of removedLinks) this.emit('linkRemoved', { link: l });
         this.emit('nodeRemoved', { node });
         this.scheduleDraw();
@@ -617,11 +640,12 @@ export class Diagram {
         this.scheduleDraw();
     }
     // ---- undo / redo public surface ---------------------------------
-    canUndo(): boolean { return this.history.state.canUndo; }
-    canRedo(): boolean { return this.history.state.canRedo; }
-    undo(): void { this.history.undo(); }
-    redo(): void { this.history.redo(); }
+    canUndo(): boolean { return this.permissions.history && this.history.state.canUndo; }
+    canRedo(): boolean { return this.permissions.history && this.history.state.canRedo; }
+    undo(): void { if (this.permissions.history) this.history.undo(); }
+    redo(): void { if (this.permissions.history) this.history.redo(); }
     cutSelection(): void {
+        if (!this.permissions.copy || !this.permissions.deleteSelection) return;
         // The copy/delete pair is observable as ONE undo step.
         this.copySelection();
         this.withTransaction('cut', () => { this.deleteSelection(); });
@@ -640,6 +664,7 @@ export class Diagram {
         });
     }
     deleteSelection(): void {
+        if (!this.permissions.deleteSelection) return;
         if (this.selectedNodes.size > 0) {
             this.withTransaction('delete selection', () => {
                 for (const id of [...this.selectedNodes].map((n) => n.id)) this.removeDiagramNode(id);
@@ -652,7 +677,7 @@ export class Diagram {
     }
     clear(): void {
         this.nodes = []; this.links = [];
-        this.selectedNode = null; this.selectedNodes.clear(); this.selectedLink = null;
+        this.selectedNode = null; this.selectedNodes.clear(); this.selectedLink = null; this.selectedPort = null;
         this.documentMetadata = {};
         this.history.clear();
         this.scheduleDraw();
@@ -752,6 +777,7 @@ export class Diagram {
         if (node === undefined) return false;
         const before = node.toInit(false);
         mutate(node);
+        if (this.reconcileSelectedPort(node)) this.emitSelectionChanged();
         const after = node.toInit(false);
         if (JSON.stringify(before) === JSON.stringify(after)) return false;
         this.layoutNode(node);
@@ -786,9 +812,20 @@ export class Diagram {
         node.y = restored.y;
         node.inPorts = restored.inPorts;
         node.outPorts = restored.outPorts;
+        if (this.reconcileSelectedPort(node)) this.emitSelectionChanged();
         this.layoutNode(node);
         this.emit('nodeChanged', { node });
         this.scheduleDraw();
+    }
+
+    private reconcileSelectedPort(node: NodeModel): boolean {
+        if (this.selectedPort?.node !== node) return false;
+        const selected = this.selectedPort.port;
+        const ports = selected.direction === 'in' ? node.inPorts : node.outPorts;
+        const replacement = ports.find((port) => port.id === selected.id);
+        if (replacement === selected) return false;
+        this.selectedPort = replacement === undefined ? null : { node, port: replacement };
+        return true;
     }
     load(nodes: DiagramNodeInit[], links: LinkInit[]): void {
         this.clear();
@@ -854,7 +891,11 @@ export class Diagram {
         return {
             nodeIds: [...this.selectedNodes].map((node) => node.id),
             linkIds: this.selectedLink === null ? [] : [this.selectedLink.id],
-            port: null,
+            port: this.selectedPort === null ? null : {
+                nodeId: this.selectedPort.node.id,
+                portId: this.selectedPort.port.id,
+                direction: this.selectedPort.port.direction,
+            },
             primaryNodeId: this.selectedNode?.id ?? null,
             primaryLinkId: this.selectedLink?.id ?? null,
         };
@@ -865,6 +906,13 @@ export class Diagram {
     }
     selectLinkById(id: string | null): void {
         this.selectLink(id === null ? null : (this.links.find((link) => link.id === id) ?? null));
+    }
+    selectPortById(nodeId: string, direction: PortDirection, portId: string): void {
+        const node = this.findNode(nodeId);
+        const port = direction === 'in'
+            ? node?.inPorts.find((candidate) => candidate.id === portId)
+            : node?.outPorts.find((candidate) => candidate.id === portId);
+        if (node !== undefined && port !== undefined) this.selectPort({ node, port });
     }
     getViewState(): DiagramViewState {
         return {
@@ -989,18 +1037,42 @@ export class Diagram {
         this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
         this.scheduleDraw();
     }
-    /** View-only mode: only pan + zoom navigation; no node/link/port editing,
-     *  rubber-band selection, context menu, delete or clipboard. Selection is
-     *  cleared when enabled. */
-    setReadOnly(value: boolean): void {
-        this.readOnly = value;
-        if (value) {
-            this.selectNode(null);
-            this.selectLink(null);
+    getInteractionPermissions(): DiagramInteractionPermissions {
+        return { ...this.permissions };
+    }
+    setInteractionPermissions(patch: Partial<DiagramInteractionPermissions>): void {
+        this.permissions = { ...this.permissions, ...patch };
+        if (!this.permissions.select) {
+            this.selectedNode = null;
+            this.selectedNodes.clear();
+            this.selectedLink = null;
+            this.selectedPort = null;
+            this.emitSelectionChanged();
         }
+        this.emit('undoStackChanged', { canUndo: this.canUndo(), canRedo: this.canRedo() });
         this.scheduleDraw();
     }
-    destroy(): void { this.canvas.remove(); }
+    /** View-only mode keeps selection, inspection and copy enabled. */
+    setReadOnly(value: boolean): void {
+        this.permissions = value
+            ? createReadOnlyDiagramPermissions()
+            : createEditableDiagramPermissions();
+        this.emit('undoStackChanged', { canUndo: this.canUndo(), canRedo: this.canRedo() });
+        this.scheduleDraw();
+    }
+    destroy(): void {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        this.cancelLongPress();
+        if (this.tipTimer !== null) {
+            clearTimeout(this.tipTimer);
+            this.tipTimer = null;
+        }
+        for (const dispose of this.domDisposables.splice(0).reverse()) dispose();
+        this.handlers.clear();
+        this.iconCache.clear();
+        this.canvas.remove();
+    }
 
     // ---- geometry ---------------------------------------------------
     private layoutNode(n: NodeModel): void {
@@ -1130,14 +1202,17 @@ export class Diagram {
 
     private selectNode(n: NodeModel | null): void {
         this.selectedLink = null;
+        this.selectedPort = null;
         this.selectedNodes.clear();
         if (n !== null) this.selectedNodes.add(n);
         this.selectedNode = n;
         this.emit('nodeSelected', { node: n, selected: n !== null });
+        this.emitSelectionChanged();
         this.scheduleDraw();
     }
     private toggleSelect(n: NodeModel): void {
         this.selectedLink = null;
+        this.selectedPort = null;
         if (this.selectedNodes.has(n)) {
             this.selectedNodes.delete(n);
             if (this.selectedNode === n) this.selectedNode = null;
@@ -1146,25 +1221,40 @@ export class Diagram {
             this.selectedNode = n;
         }
         this.emit('nodeSelected', { node: this.selectedNode, selected: this.selectedNodes.size > 0 });
+        this.emitSelectionChanged();
         this.scheduleDraw();
     }
     private setSelection(ns: NodeModel[]): void {
         this.selectedLink = null;
+        this.selectedPort = null;
         this.selectedNodes = new Set(ns);
         this.selectedNode = ns.length > 0 ? ns[ns.length - 1] : null;
         this.emit('nodeSelected', { node: this.selectedNode, selected: ns.length > 0 });
+        this.emitSelectionChanged();
         this.scheduleDraw();
     }
     private selectLink(l: LinkModel | null): void {
         if (this.selectedLink === l) return;
         this.selectedNode = null;
         this.selectedNodes.clear();
+        this.selectedPort = null;
         this.selectedLink = l;
         this.emit('linkSelected', { link: l, selected: l !== null });
+        this.emitSelectionChanged();
         this.scheduleDraw();
+    }
+    private selectPort(target: { node: NodeModel; port: PortModel }): void {
+        this.selectedPort = target;
+        this.emit('portSelected', target);
+        this.emitSelectionChanged();
+        this.scheduleDraw();
+    }
+    private emitSelectionChanged(): void {
+        this.emit('selectionChanged', this.getSelection());
     }
     // ---- clipboard (copy / paste of the selection) ------------------
     copySelection(): void {
+        if (!this.permissions.copy) return;
         if (this.selectedNodes.size === 0) { this.clip = null; return; }
         const ids = new Set([...this.selectedNodes].map((n) => n.id));
         const all = this.saveDocument();
@@ -1174,6 +1264,7 @@ export class Diagram {
         });
     }
     pasteSelection(): void {
+        if (!this.permissions.paste) return;
         if (this.clip === null || this.clip.nodes.length === 0) return;
         const map = new Map<string, string>();
         const added: NodeModel[] = [];
@@ -1224,12 +1315,34 @@ export class Diagram {
         this.emit('contextMenu', { x: pageX, y: pageY, link, node });
     }
 
+    private listen<K extends keyof HTMLElementEventMap>(
+        target: HTMLElement,
+        type: K,
+        listener: (event: HTMLElementEventMap[K]) => void,
+        options?: boolean | AddEventListenerOptions,
+    ): void;
+    private listen<K extends keyof WindowEventMap>(
+        target: Window,
+        type: K,
+        listener: (event: WindowEventMap[K]) => void,
+        options?: boolean | AddEventListenerOptions,
+    ): void;
+    private listen(
+        target: EventTarget,
+        type: string,
+        listener: EventListener,
+        options?: boolean | AddEventListenerOptions,
+    ): void {
+        target.addEventListener(type, listener, options);
+        this.domDisposables.push(() => target.removeEventListener(type, listener, options));
+    }
+
     private bind(): void {
         const localXY = (e: MouseEvent | PointerEvent): [number, number] => {
             const r = this.canvas.getBoundingClientRect();
             return [e.clientX - r.left, e.clientY - r.top];
         };
-        this.canvas.addEventListener('pointerdown', (e) => {
+        this.listen(this.canvas, 'pointerdown', (e) => {
             try { (this.canvas as Element).setPointerCapture(e.pointerId); } catch { /* unsupported */ }
             // Arm a long-press timer on every pointerdown. Cancelled by
             // move-beyond-tolerance, pointerup, or any other gesture.
@@ -1245,22 +1358,16 @@ export class Diagram {
             this.canvas.focus();
             const [sx, sy] = localXY(e);
             if (this.ovHit(sx, sy)) { this.ovDragging = true; this.ovPanTo(sx, sy); return; }
-            if (this.readOnly) {
-                // View mode: dragging anywhere pans the canvas; no node/link/port
-                // editing, no rubber-band select, no context menu.
-                this.cancelLongPress();
-                this.panning = true; this.panX = sx; this.panY = sy;
-                return;
-            }
+            if (!this.permissions.inspect) this.cancelLongPress();
             const [wx, wy] = this.toWorld(sx, sy);
             const portHit = this.portAt(wx, wy);
             if (portHit !== null) {
-                this.emit('portSelected', portHit);
+                if (this.permissions.inspect) this.selectPort(portHit);
                 // Pressing ANY socket consumes the gesture — start a link
                 // from an out-port; for an in-port (link can't originate
                 // there) just do nothing. Never fall through to panning,
                 // so grabbing a socket never drags the whole schema.
-                if (portHit.port.direction === 'out') {
+                if (this.permissions.createLinks && portHit.port.direction === 'out') {
                     this.linking = portHit;
                     this.linkSnap = null;
                     this.cursor = { x: sx, y: sy };
@@ -1270,31 +1377,39 @@ export class Diagram {
             const node = this.nodeAt(wx, wy);
             if (node !== null) {
                 const add = e.shiftKey || e.ctrlKey || e.metaKey;
-                if (add) { this.toggleSelect(node); return; }   // modifier-click toggles, no drag
-                if (!this.selectedNodes.has(node)) this.selectNode(node);   // else keep the group
-                this.dragNode = node;
-                this.dragAnchor = { wx, wy };
-                this.dragStart = [...this.selectedNodes].map((n) => ({ n, x: n.x, y: n.y }));
-                const sel = this.selectedNodes;                 // bring selection to front
-                this.nodes = this.nodes.filter((n) => !sel.has(n)).concat([...sel]);
+                if (this.permissions.select) {
+                    if (add) { this.toggleSelect(node); return; }
+                    if (!this.selectedNodes.has(node)) this.selectNode(node);
+                }
+                if (this.permissions.moveNodes) {
+                    this.dragNode = node;
+                    this.dragAnchor = { wx, wy };
+                    const moving = this.selectedNodes.has(node) ? [...this.selectedNodes] : [node];
+                    this.dragStart = moving.map((item) => ({ n: item, x: item.x, y: item.y }));
+                    const selected = new Set(moving);
+                    this.nodes = this.nodes.filter((item) => !selected.has(item)).concat(moving);
+                }
                 return;
             }
             const link = this.linkAt(wx, wy);
-            if (link !== null) { this.selectLink(link); return; }
+            if (link !== null) {
+                if (this.permissions.select) this.selectLink(link);
+                return;
+            }
             // empty space: middle-button / Ctrl / Alt / touch = pan;
             // else rubber-band select. Touch always pans because mobile
             // users can't hold modifier keys and rubber-band drag-select
             // is awkward with a finger.
-            const wantPan = e.button === 1 || e.ctrlKey || e.altKey || e.pointerType === 'touch';
+            const wantPan = !this.permissions.select || e.button === 1 || e.ctrlKey || e.altKey || e.pointerType === 'touch';
             if (wantPan) {
-                this.selectNode(null); this.selectLink(null);
+                if (this.permissions.select && !e.shiftKey) this.selectNode(null);
                 this.panning = true; this.panX = sx; this.panY = sy;
             } else {
-                if (!e.shiftKey) { this.selectNode(null); this.selectLink(null); }
+                if (!e.shiftKey) this.selectNode(null);
                 this.rubber = { x0: wx, y0: wy, x: wx, y: wy };
             }
         });
-        this.canvas.addEventListener('pointermove', (e) => {
+        this.listen(this.canvas, 'pointermove', (e) => {
             const [sx, sy] = localXY(e);
             this.cursor = { x: sx, y: sy };
             // movement past tolerance → not a long-press anymore
@@ -1329,6 +1444,7 @@ export class Diagram {
                 return;
             }
             if (this.linking !== null) { this.linkSnap = this.findSnap(); this.scheduleDraw(); return; }
+            if (!this.permissions.inspect) return;
             let dirty = false;
             // port hover
             const hit = this.portAt(wx, wy);
@@ -1432,9 +1548,9 @@ export class Diagram {
                 this.scheduleDraw();
             }
         };
-        window.addEventListener('pointerup', finish);
-        window.addEventListener('pointercancel', finish);
-        this.canvas.addEventListener('wheel', (e) => {
+        this.listen(window, 'pointerup', finish);
+        this.listen(window, 'pointercancel', finish);
+        this.listen(this.canvas, 'wheel', (e) => {
             e.preventDefault();
             const [sx, sy] = localXY(e);
             const [wx, wy] = this.toWorld(sx, sy);
@@ -1447,7 +1563,7 @@ export class Diagram {
             this.emit('zoomChanged', { scale: this.scale });
             this.scheduleDraw();
         }, { passive: false });
-        this.canvas.addEventListener('pointerleave', () => {
+        this.listen(this.canvas, 'pointerleave', () => {
             if (this.hoverPort !== null) this.emit('portHover', { node: this.hoverPort.node, port: this.hoverPort.port, hovering: false });
             if (this.hoverNode !== null) this.emit('nodeHover', { node: this.hoverNode, hovering: false });
             if (this.hoveredLink !== null) this.emit('linkHover', { link: this.hoveredLink, hovering: false });
@@ -1457,12 +1573,12 @@ export class Diagram {
             this.canvas.style.cursor = 'default';
             this.scheduleDraw();
         });
-        this.canvas.addEventListener('dblclick', (e) => {
+        this.listen(this.canvas, 'dblclick', (e) => {
             const [sx, sy] = localXY(e);
             const [wx, wy] = this.toWorld(sx, sy);
             const node = this.nodeAt(wx, wy);
             if (node !== null) {
-                if (node.openAction.length > 0) {
+                if (this.permissions.inspect && node.openAction.length > 0) {
                     e.preventDefault();
                     this.emit('nodeOpen', { node });
                 }
@@ -1471,9 +1587,9 @@ export class Diagram {
             this.zoomToFit();
         });
         // Desktop right-click → same contextMenu event as touch long-press.
-        this.canvas.addEventListener('contextmenu', (e) => {
+        this.listen(this.canvas, 'contextmenu', (e) => {
             e.preventDefault();
-            if (this.readOnly) return;
+            if (!this.permissions.inspect) return;
             const [sx, sy] = localXY(e);
             this.cancelLongPress();
             this.fireContextMenu(sx, sy, e.clientX, e.clientY);
@@ -1485,7 +1601,7 @@ export class Diagram {
         let pinchPivotW: [number, number] = [0, 0];
         let pinchPivotS: [number, number] = [0, 0];
         let pinching = false;
-        this.canvas.addEventListener('touchstart', (e) => {
+        this.listen(this.canvas, 'touchstart', (e) => {
             if (e.touches.length === 2) {
                 e.preventDefault();
                 const r = this.canvas.getBoundingClientRect();
@@ -1502,7 +1618,7 @@ export class Diagram {
                 this.panning = false; this.rubber = null; this.linking = null;
             }
         }, { passive: false });
-        this.canvas.addEventListener('touchmove', (e) => {
+        this.listen(this.canvas, 'touchmove', (e) => {
             if (pinching && e.touches.length === 2) {
                 e.preventDefault();
                 const r = this.canvas.getBoundingClientRect();
@@ -1521,19 +1637,22 @@ export class Diagram {
             }
         }, { passive: false });
         const endPinch = (): void => { pinching = false; };
-        this.canvas.addEventListener('touchend', endPinch);
-        this.canvas.addEventListener('touchcancel', endPinch);
-        this.canvas.addEventListener('keydown', (e) => {
-            if (this.readOnly) return;   // no delete/clipboard/undo editing in view mode
-            if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); this.deleteSelection(); return; }
+        this.listen(this.canvas, 'touchend', endPinch);
+        this.listen(this.canvas, 'touchcancel', endPinch);
+        this.listen(this.canvas, 'keydown', (e) => {
+            if (this.permissions.deleteSelection && (e.key === 'Delete' || e.key === 'Backspace')) {
+                e.preventDefault(); this.deleteSelection(); return;
+            }
             const mod = e.ctrlKey || e.metaKey;
-            if (mod && e.code === 'KeyC') { e.preventDefault(); this.copySelection(); return; }
-            if (mod && e.code === 'KeyV') { e.preventDefault(); this.pasteSelection(); return; }
-            if (mod && e.code === 'KeyX') { e.preventDefault(); this.cutSelection(); return; }
-            if (mod && e.code === 'KeyA') { e.preventDefault(); this.setSelection(this.nodes.slice()); return; }
+            if (mod && this.permissions.copy && e.code === 'KeyC') { e.preventDefault(); this.copySelection(); return; }
+            if (mod && this.permissions.paste && e.code === 'KeyV') { e.preventDefault(); this.pasteSelection(); return; }
+            if (mod && this.permissions.copy && this.permissions.deleteSelection && e.code === 'KeyX') {
+                e.preventDefault(); this.cutSelection(); return;
+            }
+            if (mod && this.permissions.select && e.code === 'KeyA') { e.preventDefault(); this.setSelection(this.nodes.slice()); return; }
             // Ctrl+Z = undo; Ctrl+Y or Ctrl+Shift+Z = redo.
-            if (mod && e.code === 'KeyZ' && !e.shiftKey) { e.preventDefault(); this.undo(); return; }
-            if (mod && (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey))) {
+            if (mod && this.permissions.history && e.code === 'KeyZ' && !e.shiftKey) { e.preventDefault(); this.undo(); return; }
+            if (mod && this.permissions.history && (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey))) {
                 e.preventDefault(); this.redo(); return;
             }
         });
@@ -1541,9 +1660,12 @@ export class Diagram {
 
     // ---- drawing ----------------------------------------------------
     private scheduleDraw(): void {
-        if (this.drawScheduled) return;
+        if (this.destroyed || this.drawScheduled) return;
         this.drawScheduled = true;
-        requestAnimationFrame(() => { this.drawScheduled = false; this.draw(); });
+        requestAnimationFrame(() => {
+            this.drawScheduled = false;
+            if (!this.destroyed) this.draw();
+        });
     }
     private draw(): void {
         const ctx = this.ctx;

@@ -33,16 +33,19 @@ export type {
 } from './core/model.js';
 
 export {
+    createEditableDiagramPermissions,
     createDiagramNodeRuntimeState,
     createDiagramPortRuntimeState,
     createDiagramRuntimeState,
     createDiagramSelection,
     createDiagramViewState,
+    createReadOnlyDiagramPermissions,
 } from './core/state.js';
 
 export type {
     DiagramErrorState,
     DiagramGlobalErrorKind,
+    DiagramInteractionPermissions,
     DiagramNodeErrorKind,
     DiagramNodePortRuntimeState,
     DiagramNodeRuntimeState,

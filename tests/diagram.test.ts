@@ -43,6 +43,14 @@ class FakeCanvas {
         handlers.push(listener);
         this.listeners.set(type, handlers);
     }
+    removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+        const handlers = this.listeners.get(type);
+        if (handlers === undefined) return;
+        this.listeners.set(type, handlers.filter((handler) => handler !== listener));
+    }
+    listenerCount(): number {
+        return [...this.listeners.values()].reduce((total, handlers) => total + handlers.length, 0);
+    }
     dispatch(type: string, init: Record<string, unknown>): void {
         const event = { type, preventDefault: () => undefined, ...init } as unknown as Event;
         for (const listener of this.listeners.get(type) ?? []) {
@@ -74,11 +82,26 @@ class FakeHost {
     }
 }
 
-function installDom(): void {
-    const fakeWindow = {
-        devicePixelRatio: 1,
-        addEventListener: () => undefined,
-    };
+class FakeWindow {
+    devicePixelRatio = 1;
+    private readonly listeners = new Map<string, EventListener[]>();
+
+    addEventListener(type: string, listener: EventListener): void {
+        const handlers = this.listeners.get(type) ?? [];
+        handlers.push(listener);
+        this.listeners.set(type, handlers);
+    }
+    removeEventListener(type: string, listener: EventListener): void {
+        const handlers = this.listeners.get(type) ?? [];
+        this.listeners.set(type, handlers.filter((handler) => handler !== listener));
+    }
+    listenerCount(): number {
+        return [...this.listeners.values()].reduce((total, handlers) => total + handlers.length, 0);
+    }
+}
+
+function installDom(): FakeWindow {
+    const fakeWindow = new FakeWindow();
     const fakeDocument = {
         documentElement: {},
         createElement: (tag: string) => {
@@ -93,13 +116,14 @@ function installDom(): void {
         Image: class {},
         getComputedStyle: () => ({ getPropertyValue: () => '' }),
     });
+    return fakeWindow;
 }
 
-function makeDiagram(): { diagram: Diagram; host: FakeHost } {
-    installDom();
+function makeDiagram(): { diagram: Diagram; host: FakeHost; fakeWindow: FakeWindow } {
+    const fakeWindow = installDom();
     const host = new FakeHost();
     const diagram = new Diagram({ host: host as unknown as HTMLElement });
-    return { diagram, host };
+    return { diagram, host, fakeWindow };
 }
 
 const source: DiagramNodeInit = {
@@ -259,10 +283,84 @@ test('port removal and cascaded links are one reversible transaction', () => {
     assert.equal(diagram.saveDocument().links.length, 0);
 });
 
-test('destroy removes the owned canvas', () => {
+test('selection snapshot supports multiple nodes, ports and stable link ids', () => {
+    const { diagram } = makeDiagram();
+    diagram.load([source, sink], [{
+        id: 'value-link',
+        from: 'source',
+        fromPort: 'out',
+        to: 'sink',
+        toPort: 'in',
+    }]);
+    const snapshots: ReturnType<Diagram['getSelection']>[] = [];
+    diagram.on('selectionChanged', (selection) => snapshots.push(selection));
+
+    diagram.selectNodesById(['source', 'sink']);
+    assert.deepEqual(diagram.getSelection().nodeIds, ['source', 'sink']);
+    assert.equal(diagram.getSelection().primaryNodeId, 'sink');
+
+    diagram.selectPortById('source', 'out', 'out');
+    assert.deepEqual(diagram.getSelection().port, {
+        nodeId: 'source',
+        portId: 'out',
+        direction: 'out',
+    });
+
+    diagram.selectLinkById('value-link');
+    assert.deepEqual(diagram.getSelection().nodeIds, []);
+    assert.deepEqual(diagram.getSelection().linkIds, ['value-link']);
+    assert.equal(diagram.getSelection().port, null);
+    assert.ok(snapshots.length >= 3);
+});
+
+test('read-only mode keeps inspection, selection and copy without allowing edits', () => {
     const { diagram, host } = makeDiagram();
+    diagram.load([{ ...source, openAction: 'open' }], []);
+    diagram.moveNode('source', 20, 30);
+    diagram.setReadOnly(true);
+    const node = diagram.findNode('source')!;
+    const [x, y] = (diagram as unknown as { toScreen(x: number, y: number): [number, number] })
+        .toScreen(node.x + node.w / 2, node.y + node.h / 2);
+    let contexts = 0;
+    let opened = 0;
+    diagram.on('contextMenu', () => { contexts += 1; });
+    diagram.on('nodeOpen', () => { opened += 1; });
+
+    host.canvas!.dispatch('pointerdown', {
+        pointerId: 1,
+        pointerType: 'mouse',
+        button: 0,
+        clientX: x,
+        clientY: y,
+    });
+    host.canvas!.dispatch('pointermove', { clientX: x + 100, clientY: y + 100 });
+    host.canvas!.dispatch('contextmenu', { clientX: x, clientY: y });
+    host.canvas!.dispatch('dblclick', { clientX: x, clientY: y });
+
+    assert.deepEqual(diagram.getSelection().nodeIds, ['source']);
+    assert.equal(diagram.findNode('source')?.x, 20);
+    assert.equal(diagram.findNode('source')?.y, 30);
+    assert.equal(contexts, 1);
+    assert.equal(opened, 1);
+    assert.equal(diagram.canUndo(), false);
+
+    diagram.copySelection();
+    diagram.pasteSelection();
+    assert.equal(diagram.save().nodes.length, 1);
+    diagram.setReadOnly(false);
+    diagram.pasteSelection();
+    assert.equal(diagram.save().nodes.length, 2);
+});
+
+test('destroy removes the owned canvas', () => {
+    const { diagram, host, fakeWindow } = makeDiagram();
+    assert.ok((host.canvas?.listenerCount() ?? 0) > 0);
+    assert.ok(fakeWindow.listenerCount() > 0);
+    diagram.destroy();
     diagram.destroy();
     assert.equal(host.canvas?.removed, true);
+    assert.equal(host.canvas?.listenerCount(), 0);
+    assert.equal(fakeWindow.listenerCount(), 0);
 });
 
 test('overview derives a light palette from the canvas theme', () => {

@@ -98,6 +98,11 @@ diagram.setTheme({
 See `examples/basic.ts` for catalog construction, the draggable palette,
 typed links, history, read-only mode, resize handling and theme switching.
 
+Read-only mode remains inspectable: nodes, links and ports can still be
+selected, copied and opened through host actions, while move/link/delete,
+paste and history commands are disabled. Applications that need a different
+policy can use `setInteractionPermissions()`.
+
 ### Node actions and errors
 
 Double-click handling is opt-in. Give only the node types controlled by the
