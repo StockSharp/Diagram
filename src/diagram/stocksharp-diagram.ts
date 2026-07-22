@@ -493,6 +493,18 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
                     direction: port.direction,
                 });
             }),
+            this.canvas.on('portClicked', ({ node, port, action, ctrlKey, shiftKey, altKey, metaKey }) => {
+                this.emit('portClicked', {
+                    node: this.fromCanvasNode(node),
+                    port: this.fromCanvasPort(port),
+                    direction: port.direction,
+                    action,
+                    ctrlKey,
+                    shiftKey,
+                    altKey,
+                    metaKey,
+                });
+            }),
             this.canvas.on('portHover', ({ node, port, hovering }) => {
                 this.emit('portHover', {
                     node: this.fromCanvasNode(node),
@@ -522,12 +534,14 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
                 this.emit('zoomChanged', this.canvas.getViewState());
             }),
             this.canvas.on('undoStackChanged', (state) => this.emit('undoStackChanged', state)),
-            this.canvas.on('contextMenu', ({ x, y, node, link }) => {
+            this.canvas.on('contextMenu', ({ x, y, node, link, port }) => {
                 this.emit('contextMenuRequested', {
                     x,
                     y,
                     node: node === null ? null : this.fromCanvasNode(node),
                     link: link === null ? null : this.fromCanvasLink(link),
+                    port: port === null ? null : this.fromCanvasPort(port.port),
+                    portDirection: port?.port.direction ?? null,
                     commands: this.getContextCommands(),
                 });
             }),

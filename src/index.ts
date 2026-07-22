@@ -95,6 +95,8 @@ export type {
     NodeMovedPayload,
     NodeSelectedPayload,
     PortHoverPayload,
+    PortClickAction,
+    PortClickedPayload,
     PortSelectedPayload,
 } from './diagram/api.js';
 

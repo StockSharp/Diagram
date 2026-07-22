@@ -28,6 +28,7 @@ import {
 } from './core/state.js';
 
 export type PortDirection = 'in' | 'out';
+export type PortClickAction = 'leftClick' | 'rightClick';
 
 export interface PortInit {
     id: string;
@@ -165,14 +166,29 @@ export interface DiagramEvents {
         reason: LinkValidationReason;
     };
     portSelected: { node: NodeModel; port: PortModel };
+    portClicked: {
+        node: NodeModel;
+        port: PortModel;
+        action: PortClickAction;
+        ctrlKey: boolean;
+        shiftKey: boolean;
+        altKey: boolean;
+        metaKey: boolean;
+    };
     portHover: { node: NodeModel; port: PortModel; hovering: boolean };
     nodeOpen: { node: NodeModel };
     loadFinished: { nodes: NodeModel[]; links: LinkModel[] };
     zoomChanged: { scale: number };
     // Long-press on touch / right-click on desktop. (x, y) are page coords
-    // so the host can position a DOM menu directly. Either link or node
-    // (or both null for empty-space) describe the target.
-    contextMenu: { x: number; y: number; link: LinkModel | null; node: NodeModel | null };
+    // so the host can position a DOM menu directly. Port, link or node
+    // (or all null for empty-space) describe the target.
+    contextMenu: {
+        x: number;
+        y: number;
+        link: LinkModel | null;
+        node: NodeModel | null;
+        port: { node: NodeModel; port: PortModel } | null;
+    };
     // Fires whenever the undo or redo stacks change so the host can
     // enable/disable Undo/Redo toolbar buttons live.
     undoStackChanged: { canUndo: boolean; canRedo: boolean };
@@ -1613,16 +1629,24 @@ export class Diagram {
     // the menu opens we don't want a half-drag racing it.
     private fireContextMenu(sx: number, sy: number, pageX: number, pageY: number): void {
         const [wx, wy] = this.toWorld(sx, sy);
-        const node = this.nodeAt(wx, wy);
-        const link = node === null ? this.linkAt(wx, wy) : null;
+        const port = this.portAt(wx, wy);
+        const node = port?.node ?? this.nodeAt(wx, wy);
+        const link = port === null && node === null ? this.linkAt(wx, wy) : null;
         if (this.permissions.select) {
-            if (node !== null && !this.selectedNodes.has(node)) this.selectNode(node);
+            if (port !== null) {
+                const selectedLink = this.selectedLink;
+                const isSelectedEndpoint = selectedLink !== null
+                    && ((selectedLink.from === port.node.id && selectedLink.fromPort === port.port.id)
+                        || (selectedLink.to === port.node.id && selectedLink.toPort === port.port.id));
+                if (!isSelectedEndpoint && !this.selectedNodes.has(port.node)) this.selectNode(port.node);
+                this.selectPort(port);
+            } else if (node !== null && !this.selectedNodes.has(node)) this.selectNode(node);
             else if (link !== null && this.selectedLink !== link) this.selectLink(link);
         }
         this.dragNode = null; this.dragStart = []; this.rubber = null;
         this.panning = false; this.linking = null; this.relinking = null; this.linkSnap = null;
         this.scheduleDraw();
-        this.emit('contextMenu', { x: pageX, y: pageY, link, node });
+        this.emit('contextMenu', { x: pageX, y: pageY, link, node, port });
     }
 
     private listen<K extends keyof HTMLElementEventMap>(
@@ -1672,15 +1696,33 @@ export class Diagram {
             const [wx, wy] = this.toWorld(sx, sy);
             const portHit = this.portAt(wx, wy);
             if (portHit !== null) {
-                if (this.permissions.inspect) this.selectPort(portHit);
                 const selectedLink = this.selectedLink;
+                const isFrom = selectedLink !== null
+                    && portHit.port.direction === 'out'
+                    && selectedLink.from === portHit.node.id
+                    && selectedLink.fromPort === portHit.port.id;
+                const isTo = selectedLink !== null
+                    && portHit.port.direction === 'in'
+                    && selectedLink.to === portHit.node.id
+                    && selectedLink.toPort === portHit.port.id;
+                if (this.permissions.inspect) {
+                    if (this.permissions.select && !isFrom && !isTo && !this.selectedNodes.has(portHit.node)) {
+                        this.selectNode(portHit.node);
+                    }
+                    this.selectPort(portHit);
+                    if (e.button === 0 || e.button === 2) {
+                        this.emit('portClicked', {
+                            ...portHit,
+                            action: e.button === 2 ? 'rightClick' : 'leftClick',
+                            ctrlKey: e.ctrlKey,
+                            shiftKey: e.shiftKey,
+                            altKey: e.altKey,
+                            metaKey: e.metaKey,
+                        });
+                    }
+                }
+                if (e.button !== 0) return;
                 if (this.permissions.createLinks && selectedLink !== null) {
-                    const isFrom = portHit.port.direction === 'out'
-                        && selectedLink.from === portHit.node.id
-                        && selectedLink.fromPort === portHit.port.id;
-                    const isTo = portHit.port.direction === 'in'
-                        && selectedLink.to === portHit.node.id
-                        && selectedLink.toPort === portHit.port.id;
                     if (isFrom || isTo) {
                         this.relinking = { link: selectedLink, end: isFrom ? 'from' : 'to' };
                         this.linking = null;
@@ -1934,6 +1976,7 @@ export class Diagram {
         this.listen(this.canvas, 'dblclick', (e) => {
             const [sx, sy] = localXY(e);
             const [wx, wy] = this.toWorld(sx, sy);
+            if (this.portAt(wx, wy) !== null) return;
             const node = this.nodeAt(wx, wy);
             if (node !== null) {
                 if (this.permissions.inspect && node.openAction.length > 0) {

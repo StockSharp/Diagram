@@ -137,6 +137,11 @@ diagram.on('nodeOpen', ({ nodes }) => {
 });
 ```
 
+Socket input is reported separately through `portClicked`, with
+`leftClick`/`rightClick`, direction, and keyboard modifiers. A right-click
+never starts a wire. `contextMenuRequested` also includes the exact port when
+the menu was opened over a socket.
+
 Runtime failures flash the node border before leaving it red. Errors found
 while loading a scheme use a red background. Hovering either state shows the
 full error text in a tooltip:

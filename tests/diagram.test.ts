@@ -668,7 +668,7 @@ test('double-click is emitted only for nodes with an open action', () => {
     diagram.on('nodeOpen', ({ node }) => opened.push(node.id));
 
     const internals = diagram as unknown as {
-        findNode(id: string): { x: number; y: number; w: number; h: number } | undefined;
+        findNode(id: string): { x: number; y: number; w: number; h: number; outPorts: Array<{ cx: number; cy: number }> } | undefined;
         toScreen(x: number, y: number): [number, number];
     };
     const open = internals.findNode('open')!;
@@ -678,8 +678,55 @@ test('double-click is emitted only for nodes with an open action', () => {
     const plain = internals.findNode('plain')!;
     const [plainX, plainY] = internals.toScreen(plain.x + plain.w / 2, plain.y + plain.h / 2);
     host.canvas!.dispatch('dblclick', { clientX: plainX, clientY: plainY });
+    const [portX, portY] = internals.toScreen(open.outPorts[0].cx, open.outPorts[0].cy);
+    host.canvas!.dispatch('dblclick', { clientX: portX, clientY: portY });
 
     assert.deepEqual(opened, ['open']);
+});
+
+test('socket clicks expose mouse actions without starting links on right-click', () => {
+    const { diagram, host, fakeWindow } = makeDiagram();
+    diagram.load([source, sink], []);
+    const renderer = diagram as unknown as {
+        findNode(id: string): {
+            inPorts: Array<{ cx: number; cy: number }>;
+            outPorts: Array<{ cx: number; cy: number }>;
+        } | undefined;
+        toScreen(x: number, y: number): [number, number];
+    };
+    const sourcePort = renderer.findNode('source')!.outPorts[0];
+    const sinkPort = renderer.findNode('sink')!.inPorts[0];
+    const [sourceX, sourceY] = renderer.toScreen(sourcePort.cx, sourcePort.cy);
+    const [sinkX, sinkY] = renderer.toScreen(sinkPort.cx, sinkPort.cy);
+    const clicks: Array<{ action: string; ctrlKey: boolean; nodeId: string; portId: string }> = [];
+    let contextPort: string | null = null;
+    diagram.on('portClicked', ({ action, ctrlKey, node, port }) => {
+        clicks.push({ action, ctrlKey, nodeId: node.id, portId: port.id });
+    });
+    diagram.on('contextMenu', ({ port }) => { contextPort = port?.port.id ?? null; });
+
+    host.canvas!.dispatch('pointerdown', {
+        clientX: sourceX, clientY: sourceY, pointerId: 1, pointerType: 'mouse', button: 2,
+        ctrlKey: true, shiftKey: false, altKey: false, metaKey: false,
+    });
+    host.canvas!.dispatch('pointermove', { clientX: sinkX, clientY: sinkY });
+    fakeWindow.dispatch('pointerup', { clientX: sinkX, clientY: sinkY, shiftKey: false });
+    assert.equal(diagram.saveDocument().links.length, 0);
+    host.canvas!.dispatch('contextmenu', { clientX: sourceX, clientY: sourceY });
+    assert.equal(contextPort, 'out');
+
+    host.canvas!.dispatch('pointerdown', {
+        clientX: sourceX, clientY: sourceY, pointerId: 2, pointerType: 'mouse', button: 0,
+        ctrlKey: false, shiftKey: false, altKey: false, metaKey: false,
+    });
+    host.canvas!.dispatch('pointermove', { clientX: sinkX, clientY: sinkY });
+    fakeWindow.dispatch('pointerup', { clientX: sinkX, clientY: sinkY, shiftKey: false });
+    assert.equal(diagram.saveDocument().links.length, 1);
+    assert.deepEqual(clicks, [{
+        action: 'rightClick', ctrlKey: true, nodeId: 'source', portId: 'out',
+    }, {
+        action: 'leftClick', ctrlKey: false, nodeId: 'source', portId: 'out',
+    }]);
 });
 
 test('runtime errors flash the border and expose tooltip text', () => {
@@ -766,7 +813,7 @@ test('legacy adapter publishes window.go and exposes a working selection count',
 });
 
 test('complete StockSharpDiagram API loads through the direct canvas facade', async () => {
-    installDom();
+    const fakeWindow = installDom();
     const {
         DiagramNode,
         Node,
@@ -800,6 +847,21 @@ test('complete StockSharpDiagram API loads through the direct canvas facade', as
     assert.equal(diagram.save().nodes[0].name, 'High-level source');
     const canvas = diagram.renderer;
     assert.equal(canvas.save().nodes.length, 1);
+    let clicked: { nodeId: string; portId: string; direction: string; action: string } | null = null;
+    diagram.on('portClicked', ({ node, port, direction, action }) => {
+        clicked = { nodeId: node.id, portId: port.id, direction, action };
+    });
+    const port = canvas.findNode('high-level')!.outPorts[0];
+    const [portX, portY] = (canvas as unknown as { toScreen(x: number, y: number): [number, number] })
+        .toScreen(port.cx, port.cy);
+    host.canvas!.dispatch('pointerdown', {
+        clientX: portX, clientY: portY, pointerId: 1, pointerType: 'mouse', button: 0,
+        ctrlKey: false, shiftKey: false, altKey: false, metaKey: false,
+    });
+    fakeWindow.dispatch('pointerup', { clientX: portX, clientY: portY, shiftKey: false });
+    assert.deepEqual(clicked, {
+        nodeId: 'high-level', portId: 'value', direction: 'out', action: 'leftClick',
+    });
 });
 
 test('high-level move and zoom methods update the real canvas state', async () => {

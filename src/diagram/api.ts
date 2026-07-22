@@ -66,6 +66,8 @@ export interface ContextMenuRequestedPayload {
     y: number;
     node: DiagramNode | null;
     link: Link | null;
+    port: Port | null;
+    portDirection: PortDirection | null;
     commands: ContextCommandState[];
 }
 
@@ -87,6 +89,16 @@ export interface PortSelectedPayload {
 
 export interface PortHoverPayload extends PortSelectedPayload {
     hovering: boolean;
+}
+
+export type PortClickAction = 'leftClick' | 'rightClick';
+
+export interface PortClickedPayload extends PortSelectedPayload {
+    action: PortClickAction;
+    ctrlKey: boolean;
+    shiftKey: boolean;
+    altKey: boolean;
+    metaKey: boolean;
 }
 
 export interface LinkSelectedPayload {
@@ -152,6 +164,7 @@ export interface DiagramEvents extends Record<string, unknown> {
     nodeSelected: NodeSelectedPayload;
     nodeHover: NodeHoverPayload;
     portSelected: PortSelectedPayload;
+    portClicked: PortClickedPayload;
     portHover: PortHoverPayload;
     linkSelected: LinkSelectedPayload;
     linkHover: LinkHoverPayload;
