@@ -35,6 +35,7 @@ import type {
     DiagramLoadOptions,
     DiagramGridSettings,
     DiagramOptions,
+    DiagramScreenshotOptions,
     DiagramThemeOptions,
     LinkValidator,
     NodeErrorKind,
@@ -321,6 +322,11 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     /** Restores a versioned viewport snapshot produced by saveViewState(). */
     loadViewState(source: string | unknown): void {
         this.setViewState(parseDiagramViewState(source));
+    }
+
+    /** Detached PNG-ready canvas; use scope: 'content' for the complete scheme. */
+    takeScreenshot(options: DiagramScreenshotOptions = {}): HTMLCanvasElement {
+        return this.canvas.takeScreenshot(options);
     }
 
     getSelection(): DiagramSelection {

@@ -117,6 +117,29 @@ export interface DiagramOptions {
     overviewViewportFill?: string;
 }
 
+export type DiagramScreenshotScope = 'viewport' | 'content';
+
+export interface DiagramScreenshotOptions {
+    /** Current viewport (Charts/WPF parity) or the complete graph bounds. Defaults to viewport. */
+    scope?: DiagramScreenshotScope;
+    /** World-to-CSS-pixel scale for content export. Defaults to 1. */
+    scale?: number;
+    /** CSS-pixel padding around content export. Defaults to 32. */
+    padding?: number;
+    /** Output pixel density. Defaults to the renderer's current device pixel ratio. */
+    pixelRatio?: number;
+    /** Optional export-only background override. */
+    background?: string;
+    /** Defaults to true. */
+    includeGrid?: boolean;
+    /** Defaults to the current value for viewport and false for content. */
+    includeOverview?: boolean;
+    /** Defaults to true for viewport and false for content. */
+    includeSelection?: boolean;
+    /** Include debugger and error state. Defaults to true. */
+    includeRuntimeState?: boolean;
+}
+
 export interface LinkValidatorArgs {
     fromNode: NodeModel;
     fromPort: PortModel;
@@ -203,6 +226,22 @@ export interface DiagramEvents {
     selectionChanged: DiagramSelection;
     runtimeStateChanged: { state: DiagramRuntimeState };
 }
+
+interface DiagramRenderOptions {
+    grid: boolean;
+    overview: boolean;
+    selection: boolean;
+    runtime: boolean;
+    transient: boolean;
+}
+
+const SCREEN_RENDER_OPTIONS: DiagramRenderOptions = {
+    grid: true,
+    overview: true,
+    selection: true,
+    runtime: true,
+    transient: true,
+};
 // One reversible operation. `do` re-applies it (redo), `undo` reverses
 // it. Both must be idempotent w.r.t. repeated undo/redo. label is for
 // telemetry/debug only.
@@ -433,7 +472,7 @@ function colorLuminance(color: string | undefined): number {
 export class Diagram {
     private readonly host: HTMLElement;
     private readonly canvas: HTMLCanvasElement;
-    private readonly ctx: CanvasRenderingContext2D;
+    private ctx: CanvasRenderingContext2D;
     private readonly opts: DiagramOptions;
 
     private nodes: NodeModel[] = [];
@@ -1199,6 +1238,112 @@ export class Diagram {
     // private fields with `as unknown` from outside.
     findNode(id: string): NodeModel | undefined { return this.nodes.find((n) => n.id === id); }
     requestRedraw(): void { this.relayout(); this.scheduleDraw(); }
+    /**
+     * Creates a detached canvas. With no options it is an exact copy of the
+     * current frame, matching Charts.takeScreenshot(). Content scope renders
+     * the whole graph without changing the visible viewport.
+     */
+    takeScreenshot(options: DiagramScreenshotOptions = {}): HTMLCanvasElement {
+        if (this.destroyed) throw new Error('ssgraph: cannot export a destroyed diagram');
+        const scope = options.scope ?? 'viewport';
+        if (scope !== 'viewport' && scope !== 'content') {
+            throw new RangeError(`ssgraph: unsupported screenshot scope "${String(scope)}"`);
+        }
+
+        if (scope === 'viewport' && Object.keys(options).length === 0) {
+            const copy = document.createElement('canvas');
+            copy.width = this.canvas.width;
+            copy.height = this.canvas.height;
+            const copyContext = copy.getContext('2d');
+            if (copyContext === null) throw new Error('ssgraph: screenshot 2d context unavailable');
+            copyContext.drawImage(this.canvas, 0, 0);
+            return copy;
+        }
+
+        const pixelRatio = this.positiveScreenshotNumber(options.pixelRatio ?? this.dpr, 'pixelRatio');
+        const exportScale = scope === 'content'
+            ? this.positiveScreenshotNumber(options.scale ?? 1, 'scale')
+            : this.scale;
+        const padding = scope === 'content'
+            ? this.nonNegativeScreenshotNumber(options.padding ?? 32, 'padding')
+            : 0;
+        const bounds = scope === 'content' ? this.graphBounds() : null;
+        const width = scope === 'content'
+            ? Math.max(1, Math.ceil(((bounds?.maxX ?? 1) - (bounds?.minX ?? 0)) * exportScale + padding * 2))
+            : this.width;
+        const height = scope === 'content'
+            ? Math.max(1, Math.ceil(((bounds?.maxY ?? 1) - (bounds?.minY ?? 0)) * exportScale + padding * 2))
+            : this.height;
+        const pixelWidth = Math.ceil(width * pixelRatio);
+        const pixelHeight = Math.ceil(height * pixelRatio);
+        if (pixelWidth > 16384 || pixelHeight > 16384 || pixelWidth * pixelHeight > 268_435_456) {
+            throw new RangeError(`ssgraph: screenshot is too large (${pixelWidth}x${pixelHeight})`);
+        }
+
+        const output = document.createElement('canvas');
+        output.width = pixelWidth;
+        output.height = pixelHeight;
+        output.style.width = `${width}px`;
+        output.style.height = `${height}px`;
+        const outputContext = output.getContext('2d');
+        if (outputContext === null) throw new Error('ssgraph: screenshot 2d context unavailable');
+
+        const previous = {
+            ctx: this.ctx,
+            width: this.width,
+            height: this.height,
+            dpr: this.dpr,
+            scale: this.scale,
+            offX: this.offX,
+            offY: this.offY,
+            overviewVisible: this.overviewVisible,
+            background: this.opts.background,
+        };
+        try {
+            this.ctx = outputContext;
+            this.width = width;
+            this.height = height;
+            this.dpr = pixelRatio;
+            this.scale = exportScale;
+            this.offX = scope === 'content' && bounds !== null ? padding - bounds.minX * exportScale : previous.offX;
+            this.offY = scope === 'content' && bounds !== null ? padding - bounds.minY * exportScale : previous.offY;
+            this.overviewVisible = options.includeOverview ?? (scope === 'viewport' && previous.overviewVisible);
+            if (options.background !== undefined) this.opts.background = options.background;
+            outputContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+            this.draw({
+                grid: options.includeGrid ?? true,
+                overview: this.overviewVisible,
+                selection: options.includeSelection ?? scope === 'viewport',
+                runtime: options.includeRuntimeState ?? true,
+                transient: false,
+            });
+        } finally {
+            this.ctx = previous.ctx;
+            this.width = previous.width;
+            this.height = previous.height;
+            this.dpr = previous.dpr;
+            this.scale = previous.scale;
+            this.offX = previous.offX;
+            this.offY = previous.offY;
+            this.overviewVisible = previous.overviewVisible;
+            this.opts.background = previous.background;
+        }
+        return output;
+    }
+
+    private positiveScreenshotNumber(value: number, name: string): number {
+        if (!Number.isFinite(value) || value <= 0) {
+            throw new RangeError(`ssgraph: screenshot ${name} must be a positive finite number`);
+        }
+        return value;
+    }
+
+    private nonNegativeScreenshotNumber(value: number, name: string): number {
+        if (!Number.isFinite(value) || value < 0) {
+            throw new RangeError(`ssgraph: screenshot ${name} must be a non-negative finite number`);
+        }
+        return value;
+    }
     getRuntimeState(): DiagramRuntimeState {
         return cloneDiagramRuntimeState(this.runtimeState);
     }
@@ -2195,7 +2340,7 @@ export class Diagram {
             if (!this.destroyed) this.draw();
         });
     }
-    private draw(): void {
+    private draw(options: DiagramRenderOptions = SCREEN_RENDER_OPTIONS): void {
         const ctx = this.ctx;
         ctx.clearRect(0, 0, this.width, this.height);
         ctx.fillStyle = this.opts.background ?? '#1b1b1f';
@@ -2204,7 +2349,7 @@ export class Diagram {
         // the opaque background.
         let introDy = 0;
         let introAlpha = 1;
-        if (this.introStart !== null) {
+        if (options.transient && this.introStart !== null) {
             const e = Math.min(1, (performance.now() - this.introStart) / INTRO_MS);
             const k = 1 - Math.pow(1 - e, 3);   // easeOutCubic
             introAlpha = k;
@@ -2213,7 +2358,7 @@ export class Diagram {
         }
         ctx.save();
         ctx.globalAlpha = introAlpha;
-        this.drawGrid();
+        if (options.grid) this.drawGrid();
         ctx.setTransform(this.dpr * this.scale, 0, 0, this.dpr * this.scale,
             this.dpr * this.offX, this.dpr * (this.offY + introDy));
         // Links first. Each link jumps over the verticals of the links
@@ -2225,7 +2370,9 @@ export class Diagram {
             if (a === null || b === null) continue;
             const fp = this.nodes.find((n) => n.id === l.from)?.outPorts.find((p) => p.id === l.fromPort);
             const baseColor = fp ? this.portColor(fp.type) : '#7d828a';
-            const state = l === this.selectedLink ? 'sel' : l === this.hoveredLink ? 'hov' : 'norm';
+            const state = options.selection && l === this.selectedLink
+                ? 'sel'
+                : options.transient && l === this.hoveredLink ? 'hov' : 'norm';
             const color = state === 'sel' ? '#4aa3ff' : state === 'hov' ? '#cfe3ff' : baseColor;
             const width = state === 'sel' ? 3 : state === 'hov' ? 2.6 : 2;
             const pts = this.routeLink(a, b, new Set([l.from, l.to]));
@@ -2238,9 +2385,9 @@ export class Diagram {
                 else if (y1 === y2 && x1 !== x2) prior.push({ h: true, c: y1, a: Math.min(x1, x2), b: Math.max(x1, x2) });
             }
         }
-        if (this.linking !== null || this.relinking !== null) this.drawPendingLink();
-        for (const n of this.nodes) this.drawNode(n, this.selectedNodes.has(n));
-        if (this.rubber !== null) {
+        if (options.transient && (this.linking !== null || this.relinking !== null)) this.drawPendingLink();
+        for (const n of this.nodes) this.drawNode(n, options.selection && this.selectedNodes.has(n), options);
+        if (options.transient && this.rubber !== null) {
             const rx = Math.min(this.rubber.x0, this.rubber.x);
             const ry = Math.min(this.rubber.y0, this.rubber.y);
             const rw = Math.abs(this.rubber.x - this.rubber.x0);
@@ -2252,11 +2399,11 @@ export class Diagram {
             ctx.strokeRect(rx, ry, rw, rh);
         }
         ctx.restore();
-        this.drawOverview();
-        this.drawGlobalError();
-        this.drawTooltip();
-        if (this.introStart !== null || this.globalErrorFlashStart !== null
-            || this.nodes.some((n) => n.errorFlashStart !== null))
+        if (options.overview) this.drawOverview();
+        if (options.runtime) this.drawGlobalError();
+        if (options.transient) this.drawTooltip();
+        if (options.transient && (this.introStart !== null || this.globalErrorFlashStart !== null
+            || this.nodes.some((n) => n.errorFlashStart !== null)))
             this.scheduleDraw();   // keep entrance / error feedback animating
     }
     private drawGlobalError(): void {
@@ -2394,12 +2541,13 @@ export class Diagram {
         img.src = url;
         return null;
     }
-    private drawNode(n: NodeModel, selected: boolean): void {
+    private drawNode(n: NodeModel, selected: boolean, options: DiagramRenderOptions): void {
         const ctx = this.ctx;
-        const hasLoadError = n.loadError.length > 0;
-        const hasRuntimeError = n.runtimeError.length > 0;
-        const runtime = this.runtimeState.nodes[n.id];
-        const active = this.runtimeState.activeNodeId === n.id || runtime?.active === true;
+        const hasLoadError = options.runtime && n.loadError.length > 0;
+        const hasRuntimeError = options.runtime && n.runtimeError.length > 0;
+        const runtime = options.runtime ? this.runtimeState.nodes[n.id] : undefined;
+        const active = options.runtime
+            && (this.runtimeState.activeNodeId === n.id || runtime?.active === true);
         roundRect(ctx, n.x, n.y, n.w, n.h, 6);
         ctx.fillStyle = hasLoadError ? ERROR_BACKGROUND : active ? '#ffd1dc' : n.color;
         ctx.fill();
@@ -2408,7 +2556,7 @@ export class Diagram {
         ctx.stroke();
         if (hasLoadError || hasRuntimeError) {
             let alpha = 1;
-            if (hasRuntimeError && n.errorFlashStart !== null) {
+            if (options.transient && hasRuntimeError && n.errorFlashStart !== null) {
                 const elapsed = performance.now() - n.errorFlashStart;
                 if (elapsed >= ERROR_FLASH_MS) {
                     n.errorFlashStart = null;
@@ -2440,14 +2588,14 @@ export class Diagram {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(n.name, n.x + titleShift + (n.w - titleShift) / 2, n.y + n.h / 2, n.w - titleShift - 14);
-        for (const p of n.inPorts) this.drawPort(n, p);
-        for (const p of n.outPorts) this.drawPort(n, p);
+        for (const p of n.inPorts) this.drawPort(n, p, options);
+        for (const p of n.outPorts) this.drawPort(n, p, options);
     }
-    private drawPort(node: NodeModel, p: PortModel): void {
+    private drawPort(node: NodeModel, p: PortModel, options: DiagramRenderOptions): void {
         const ctx = this.ctx;
-        const hovered = this.hoverPort?.port === p;
-        const magnet = this.linkSnap?.port === p;
-        const runtime = this.portRuntimeState(node, p);
+        const hovered = options.transient && this.hoverPort?.port === p;
+        const magnet = options.transient && this.linkSnap?.port === p;
+        const runtime = options.runtime ? this.portRuntimeState(node, p) : null;
         const s = magnet ? PORT_SQ + 4 : hovered ? PORT_SQ + 2 : PORT_SQ;
         const x = p.cx - s / 2;
         const y = p.cy - s / 2;
@@ -2465,7 +2613,7 @@ export class Diagram {
         ctx.lineWidth = magnet ? 1.5 : 1;
         ctx.strokeStyle = magnet ? '#ffffff' : 'rgba(12,12,16,0.55)';
         ctx.stroke();
-        const runtimeSelected = runtime?.selected === true || this.selectedPort?.port === p;
+        const runtimeSelected = runtime?.selected === true || (options.selection && this.selectedPort?.port === p);
         const breakpoint = runtime?.breakpoint === true;
         const breakpointActive = runtime?.breakpointActive === true;
         const runtimeActive = runtime?.active === true;

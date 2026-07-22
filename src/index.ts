@@ -88,6 +88,8 @@ export type {
     DiagramGridSettings,
     DiagramLoadOptions,
     DiagramOptions,
+    DiagramScreenshotOptions,
+    DiagramScreenshotScope,
     DiagramThemeOptions,
     DocumentLoadFailedPayload,
     LinkChangePayload,
@@ -171,6 +173,8 @@ export {
 export type {
     DiagramNodeInit as CanvasDiagramNodeInit,
     DiagramOptions as CanvasDiagramOptions,
+    DiagramScreenshotOptions as CanvasDiagramScreenshotOptions,
+    DiagramScreenshotScope as CanvasDiagramScreenshotScope,
     LinkInit as CanvasLinkInit,
     LinkValidator as CanvasLinkValidator,
     LinkValidatorArgs as CanvasLinkValidatorArgs,

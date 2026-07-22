@@ -25,6 +25,9 @@ export interface DiagramGridSettings {
     size: number;
 }
 
+export type DiagramScreenshotScope = import('../ssgraph.js').DiagramScreenshotScope;
+export type DiagramScreenshotOptions = import('../ssgraph.js').DiagramScreenshotOptions;
+
 export interface DiagramClipboard {
     readText(): Promise<string>;
     writeText(value: string): Promise<void>;

@@ -133,6 +133,13 @@ overview visibility; `viewChanged` fires for programmatic and interactive
 viewport changes. A damaged settings value throws `DiagramViewStateError`
 without modifying the current viewport.
 
+`takeScreenshot()` returns a detached canvas exactly like the Charts API and
+the WPF `SaveToImage` flow. With no options it copies the current viewport;
+`takeScreenshot({ scope: 'content', pixelRatio: 2 })` renders the complete
+scheme without moving or resizing the visible editor. Export options control
+padding, background, grid, overview, selection and transient runtime state;
+encode the returned canvas with `toBlob()` or `toDataURL()`.
+
 ### Node actions and errors
 
 Double-click handling is opt-in. Give only the node types controlled by the

@@ -13,12 +13,15 @@ class FakeCanvas {
     fillStyles: string[] = [];
     strokeStyles: string[] = [];
     drawnText: string[] = [];
+    drawImageCount = 0;
+    transforms: number[][] = [];
     private readonly listeners = new Map<string, Array<EventListenerOrEventListenerObject>>();
 
     private readonly context = new Proxy({
         globalAlpha: 1,
         measureText: (text: string) => ({ width: text.length * 7 }),
-        setTransform: () => undefined,
+        setTransform: (...values: number[]) => { this.transforms.push(values); },
+        drawImage: () => { this.drawImageCount += 1; },
         fillText: (text: string) => { this.drawnText.push(text); },
     }, {
         get(target, property) {
@@ -684,6 +687,51 @@ test('double-click is emitted only for nodes with an open action', () => {
     assert.deepEqual(opened, ['open']);
 });
 
+test('screenshots copy the viewport or render full content without changing editor state', () => {
+    const { diagram, host } = makeDiagram();
+    diagram.load([{
+        id: 'source', name: 'Source', x: -100, y: 40,
+        outPorts: [{ id: 'out', name: 'Out', type: 'number' }],
+    }, {
+        id: 'sink', name: 'Sink', x: 260, y: 180,
+        inPorts: [{ id: 'in', name: 'In', type: 'number' }],
+    }], [{ from: 'source', fromPort: 'out', to: 'sink', toPort: 'in' }]);
+    diagram.setViewState({ zoom: 1.4, panX: 65, panY: -25, overviewVisible: true });
+    diagram.selectNodeById('source');
+    diagram.setNodeError('source', 'Transient failure', { animate: false });
+    const beforeView = diagram.getViewState();
+    const beforeRuntime = diagram.getRuntimeState();
+    const beforeSelection = diagram.getSelection();
+    let viewEvents = 0;
+    diagram.on('viewChanged', () => { viewEvents += 1; });
+
+    const viewport = diagram.takeScreenshot() as unknown as FakeCanvas;
+    assert.notEqual(viewport, host.canvas);
+    assert.equal(viewport.width, host.canvas!.width);
+    assert.equal(viewport.height, host.canvas!.height);
+    assert.equal(viewport.drawImageCount, 1);
+
+    const content = diagram.takeScreenshot({
+        scope: 'content',
+        pixelRatio: 2,
+        padding: 20,
+        background: '#abcdef',
+        includeGrid: false,
+        includeOverview: false,
+        includeSelection: false,
+        includeRuntimeState: false,
+    }) as unknown as FakeCanvas;
+    assert.ok(content.width > 0 && content.height > 0);
+    assert.equal(content.width % 2, 0);
+    assert.equal(content.height % 2, 0);
+    assert.ok(content.fillStyles.includes('#abcdef'));
+    assert.deepEqual(diagram.getViewState(), beforeView);
+    assert.deepEqual(diagram.getRuntimeState(), beforeRuntime);
+    assert.deepEqual(diagram.getSelection(), beforeSelection);
+    assert.equal(viewEvents, 0);
+    assert.throws(() => diagram.takeScreenshot({ scope: 'content', pixelRatio: 0 }), /pixelRatio/);
+});
+
 test('socket clicks expose mouse actions without starting links on right-click', () => {
     const { diagram, host, fakeWindow } = makeDiagram();
     diagram.load([source, sink], []);
@@ -945,6 +993,8 @@ test('high-level move and zoom methods update the real canvas state', async () =
     assert.equal(diagram.renderer.findNode('node')?.y, -25);
     assert.equal(diagram.getViewState().zoom, 1.75);
     assert.equal(diagram.save().nodes[0].x, 150);
+    const image = diagram.takeScreenshot({ scope: 'content', pixelRatio: 1 });
+    assert.ok(image.width > 0 && image.height > 0);
 });
 
 test('high-level view settings persist separately and report viewport changes', async () => {

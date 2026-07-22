@@ -273,6 +273,31 @@ document.querySelector<HTMLButtonElement>('#redoBtn')!.addEventListener('click',
     diagram.redo(); updateState();
 });
 document.querySelector<HTMLButtonElement>('#fitBtn')!.addEventListener('click', () => diagram.zoomToFit());
+document.querySelector<HTMLButtonElement>('#exportBtn')!.addEventListener('click', () => {
+    const image = diagram.takeScreenshot({
+        scope: 'content',
+        pixelRatio: 2,
+        padding: 40,
+        includeOverview: false,
+        includeSelection: false,
+    });
+    image.toBlob((blob) => {
+        if (blob === null) {
+            setStatus('The browser could not encode the diagram image.');
+            return;
+        }
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = 'stocksharp-strategy.png';
+        anchor.hidden = true;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 0);
+        setStatus('Full strategy image exported.');
+    }, 'image/png');
+});
 document.querySelector<HTMLButtonElement>('#runtimeErrorBtn')!.addEventListener('click', () => {
     diagram.setNodeError('orders', 'Order Builder failed: order volume is not configured.');
     setStatus('Runtime error highlighted on Buy on cross. Hover the node for details.');
