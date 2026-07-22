@@ -8,6 +8,10 @@ test('demo exercises palette, theme, runtime errors and full-image export', asyn
     await expect(page.locator('#diagram canvas')).toHaveCount(1);
     await expect(page.locator('#status')).toHaveText('Strategy model reset.');
     await expect(page.locator('#modelStats')).toContainText('7 nodes');
+    const compactTools = page.locator('.demo-header .icon-only');
+    await expect(compactTools).toHaveCount(6);
+    expect(await compactTools.evaluateAll((buttons) => buttons.every((button) =>
+        button.getBoundingClientRect().width <= 30))).toBe(true);
 
     await page.locator('#paletteSearch').fill('moving average');
     const visibleItems = page.locator('.d-palette-item:not(.is-hidden)');
@@ -20,6 +24,7 @@ test('demo exercises palette, theme, runtime errors and full-image export', asyn
     await expect(page.locator('#status')).toContainText('Runtime error highlighted');
     await page.locator('#themeBtn').click();
     await expect(page.locator('html')).toHaveAttribute('data-bs-theme', 'light');
+    await expect(page.locator('#themeBtn')).toHaveAttribute('aria-label', 'Switch to dark theme');
 
     const downloadPromise = page.waitForEvent('download');
     await page.locator('#exportBtn').click();
@@ -27,6 +32,34 @@ test('demo exercises palette, theme, runtime errors and full-image export', asyn
     expect(download.suggestedFilename()).toBe('stocksharp-strategy.png');
     await expect(page.locator('#status')).toHaveText('Full strategy image exported.');
     expect(pageErrors).toEqual([]);
+});
+
+test('demo expands its configured diagram panel to fullscreen', async ({ page }) => {
+    await page.goto('/demo/index.html');
+    const button = page.locator('[data-ssdiagram-fullscreen-button]');
+
+    await page.evaluate(() => (window as unknown as {
+        stockSharpDiagramDemo: { setFullscreenButtonVisible(visible: boolean): void };
+    }).stockSharpDiagramDemo.setFullscreenButtonVisible(false));
+    await expect(button).toBeHidden();
+    await page.evaluate(() => (window as unknown as {
+        stockSharpDiagramDemo: { setFullscreenButtonVisible(visible: boolean): void };
+    }).stockSharpDiagramDemo.setFullscreenButtonVisible(true));
+    await expect(button).toBeVisible();
+
+    await button.click();
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement?.classList
+        .contains('canvas-panel') ?? false)).toBe(true);
+    await expect(button).toHaveAttribute('aria-label', 'Exit fullscreen');
+    await expect(button).toHaveClass(/is-active/);
+    await expect(button).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#diagram canvas')).toBeVisible();
+
+    await page.evaluate(() => document.exitFullscreen());
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+    await expect(button).toHaveAttribute('aria-label', 'Enter fullscreen');
+    await expect(button).not.toHaveClass(/is-active/);
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
 });
 
 test('node properties change live input and output connection policies', async ({ page }) => {
@@ -109,8 +142,10 @@ test('component can be destroyed without leaving its canvas behind', async ({ pa
     await page.goto('/tests/browser/fixtures/component.html');
     await page.waitForFunction(() => (window as unknown as { fixtureReady?: boolean }).fixtureReady === true);
     await expect(page.locator('#diagram canvas')).toHaveCount(1);
+    await expect(page.locator('[data-ssdiagram-fullscreen-button]')).toHaveCount(1);
     await page.evaluate(() => {
         (window as unknown as { fixtureDiagram: { destroy(): void } }).fixtureDiagram.destroy();
     });
     await expect(page.locator('#diagram canvas')).toHaveCount(0);
+    await expect(page.locator('[data-ssdiagram-fullscreen-button]')).toHaveCount(0);
 });

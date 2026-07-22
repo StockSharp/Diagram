@@ -69,16 +69,42 @@ class FakeCanvas {
     remove(): void { this.removed = true; }
 }
 
+class FakeButton {
+    style: Record<string, string> = {};
+    hidden = false;
+    removed = false;
+    type = '';
+    className = '';
+    title = '';
+    innerHTML = '';
+    private readonly attributes = new Map<string, string>();
+    private readonly listeners = new Map<string, Array<EventListenerOrEventListenerObject>>();
+
+    setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
+    getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
+    addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+        const handlers = this.listeners.get(type) ?? [];
+        handlers.push(listener);
+        this.listeners.set(type, handlers);
+    }
+    removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+        this.listeners.set(type, (this.listeners.get(type) ?? []).filter((handler) => handler !== listener));
+    }
+    remove(): void { this.removed = true; }
+}
+
 class FakeHost {
     clientWidth = 800;
     clientHeight = 480;
     style: Record<string, string> = {};
     parentElement: FakeHost | null = null;
     canvas: FakeCanvas | null = null;
+    button: FakeButton | null = null;
     classList = { toggle: () => false, add: () => undefined };
-    appendChild(canvas: FakeCanvas): FakeCanvas {
-        this.canvas = canvas;
-        return canvas;
+    appendChild<T extends FakeCanvas | FakeButton>(child: T): T {
+        if (child instanceof FakeCanvas) this.canvas = child;
+        else this.button = child;
+        return child;
     }
     getBoundingClientRect(): DOMRect {
         return { left: 0, top: 0, right: 800, bottom: 480, width: 800, height: 480, x: 0, y: 0, toJSON: () => ({}) };
@@ -112,8 +138,9 @@ function installDom(): FakeWindow {
     const fakeDocument = {
         documentElement: {},
         createElement: (tag: string) => {
-            assert.equal(tag, 'canvas');
-            return new FakeCanvas();
+            if (tag === 'canvas') return new FakeCanvas();
+            if (tag === 'button') return new FakeButton();
+            throw new Error(`Unexpected element: ${tag}`);
         },
     };
     Object.assign(globalThis, {
@@ -1119,6 +1146,34 @@ test('complete StockSharpDiagram API loads through the direct canvas facade', as
     assert.deepEqual(clicked, {
         nodeId: 'high-level', portId: 'value', direction: 'out', action: 'leftClick',
     });
+});
+
+test('built-in fullscreen button can be hidden by options and changed at runtime', async () => {
+    installDom();
+    const { StockSharpCatalog, StockSharpDiagram } = await import('../src/index');
+    const host = new FakeHost();
+    const previousPosition = host.style.position;
+    const diagram = new StockSharpDiagram({
+        div: host as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+        showFullscreenButton: false,
+    });
+
+    assert.equal(diagram.isFullscreenButtonVisible(), false);
+    assert.equal(host.button?.hidden, true);
+    assert.equal(host.button?.style.display, 'none');
+    assert.equal(host.button?.getAttribute('data-ssdiagram-fullscreen-button'), '');
+    assert.equal(host.style.position, 'relative');
+
+    diagram.setFullscreenButtonVisible(true);
+    assert.equal(diagram.isFullscreenButtonVisible(), true);
+    assert.equal(host.button?.hidden, false);
+    assert.equal(host.button?.style.display, 'inline-flex');
+
+    const button = host.button!;
+    diagram.destroy();
+    assert.equal(button.removed, true);
+    assert.equal(host.style.position, previousPosition);
 });
 
 test('high-level move and zoom methods update the real canvas state', async () => {

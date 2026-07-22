@@ -241,6 +241,10 @@ import type { DiagramNode, Link, Port, PortDirection } from './types.js';
 export interface DiagramOptions {
     div: HTMLElement;
     catalog: import('./catalog.js').StockSharpCatalog;
+    /** Element promoted by the Fullscreen API. Defaults to the diagram host. */
+    fullscreenElement?: HTMLElement | null;
+    /** Show the built-in top-right fullscreen button. Defaults to true. */
+    showFullscreenButton?: boolean;
     overviewDiv?: HTMLElement | null;
     overviewContainer?: HTMLElement | null;
     zoomLabel?: HTMLElement | null;
@@ -282,6 +286,9 @@ export interface DiagramLoadOptions {
 export interface DocumentLoadFailedPayload {
     message: string;
     error: Error;
+}
+export interface FullscreenChangedPayload {
+    fullscreen: boolean;
 }
 export type ContextCommand = 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'open' | 'delete' | 'properties' | 'help';
 export interface ContextCommandPayload {
@@ -406,6 +413,7 @@ export interface DiagramEvents extends Record<string, unknown> {
         document: DiagramDocument;
     };
     documentLoadFailed: DocumentLoadFailedPayload;
+    fullscreenChanged: FullscreenChangedPayload;
 }
 
 // FILE: diagram/catalog.d.ts
@@ -512,6 +520,9 @@ import { DiagramNode, Link, Port, type PortDirection, type PortUpdate } from './
 export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     private readonly div;
     private readonly catalog;
+    private readonly fullscreenElement;
+    private readonly fullscreenDocument;
+    private readonly fullscreenButton;
     private readonly overviewContainer;
     private readonly zoomLabel;
     private readonly canvas;
@@ -523,6 +534,8 @@ export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     private helpEnabled;
     private loading;
     private destroyed;
+    private fullscreen;
+    private fullscreenButtonVisible;
     private linkValidator;
     private readonly contextActions;
     constructor(options: DiagramOptions);
@@ -606,6 +619,12 @@ export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     selectLink(linkId: string | null): void;
     selectPort(nodeId: string, direction: PortDirection, portId: string): void;
     resize(width: number, height: number): void;
+    isFullscreen(): boolean;
+    setFullscreenButtonVisible(visible: boolean): void;
+    isFullscreenButtonVisible(): boolean;
+    enterFullscreen(options?: FullscreenOptions): Promise<void>;
+    exitFullscreen(): Promise<void>;
+    toggleFullscreen(options?: FullscreenOptions): Promise<void>;
     setTheme(options: DiagramThemeOptions): void;
     enableUndo(enabled: boolean): void;
     enableRedo(enabled: boolean): void;
@@ -633,6 +652,10 @@ export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     loadDocument(document: DiagramDocument | string, options?: DiagramLoadOptions): void;
     saveDocument(): DiagramDocument;
     destroy(): void;
+    private handleFullscreenChange;
+    private prepareFullscreenButtonHost;
+    private createFullscreenButton;
+    private updateFullscreenButton;
     private bindCanvasEvents;
     private registerContextActions;
     private contextActionContext;

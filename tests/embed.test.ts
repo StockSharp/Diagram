@@ -64,8 +64,36 @@ class FakeCanvas {
     }
 }
 
+class FakeButton {
+    readonly style: Record<string, string> = {};
+    parentElement: FakeHost | null = null;
+    hidden = false;
+    type = '';
+    className = '';
+    title = '';
+    innerHTML = '';
+    private readonly attributes = new Map<string, string>();
+    private readonly listeners = new Map<string, EventListenerOrEventListenerObject[]>();
+
+    setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
+    addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+        const listeners = this.listeners.get(type) ?? [];
+        listeners.push(listener);
+        this.listeners.set(type, listeners);
+    }
+    removeEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+        this.listeners.set(type, (this.listeners.get(type) ?? []).filter((item) => item !== listener));
+    }
+    remove(): void {
+        if (this.parentElement === null) return;
+        const index = this.parentElement.children.indexOf(this);
+        if (index >= 0) this.parentElement.children.splice(index, 1);
+        this.parentElement = null;
+    }
+}
+
 class FakeHost {
-    readonly children: FakeCanvas[] = [];
+    readonly children: Array<FakeCanvas | FakeButton> = [];
     readonly style: Record<string, string> = {};
     readonly dataset: Record<string, string | undefined> = {};
     readonly classList = new FakeClassList();
@@ -75,13 +103,13 @@ class FakeHost {
     isConnected = true;
     textContent = '';
 
-    appendChild(canvas: FakeCanvas): FakeCanvas {
-        canvas.parentElement = this;
-        this.children.push(canvas);
-        return canvas;
+    appendChild<T extends FakeCanvas | FakeButton>(child: T): T {
+        child.parentElement = this;
+        this.children.push(child);
+        return child;
     }
     replaceChildren(): void {
-        for (const canvas of this.children) canvas.parentElement = null;
+        for (const child of this.children) child.parentElement = null;
         this.children.length = 0;
         this.textContent = '';
     }
@@ -137,8 +165,9 @@ function installDom(fetchImpl: typeof fetch): void {
         document: {
             documentElement,
             createElement: (tag: string) => {
-                assert.equal(tag, 'canvas');
-                return new FakeCanvas();
+                if (tag === 'canvas') return new FakeCanvas();
+                if (tag === 'button') return new FakeButton();
+                throw new Error(`Unexpected element: ${tag}`);
             },
         },
         window: new FakeWindow(),
@@ -162,7 +191,7 @@ test('embed rendering replaces and disposes every resource owned by a host', asy
 
     const first = await renderScheme(host as unknown as HTMLElement, '/palette.json', emptyScheme);
     assert.notEqual(first, null);
-    assert.equal(host.children.length, 1);
+    assert.equal(host.children.length, 2);
     assert.equal(host.dataset.rendered, '1');
     assert.equal(host.classList.contains('ss-diagram-error'), false);
 
@@ -173,7 +202,7 @@ test('embed rendering replaces and disposes every resource owned by a host', asy
     assert.equal(first!.destroyed, true);
     assert.equal(firstResize.disconnected, true);
     assert.equal(firstTheme.disconnected, true);
-    assert.equal(host.children.length, 1);
+    assert.equal(host.children.length, 2);
 
     assert.equal(destroyRenderedDiagram(host as unknown as HTMLElement), true);
     assert.equal(second!.destroyed, true);
@@ -202,7 +231,7 @@ test('a stale async render cannot replace a newer host render', async () => {
     assert.notEqual(current, null);
     responses[0](paletteResponse());
     assert.equal(await older, null);
-    assert.equal(host.children.length, 1);
+    assert.equal(host.children.length, 2);
 
     current!.destroy();
     assert.equal(host.children.length, 0);
@@ -235,7 +264,7 @@ test('a stale source failure cannot replace a newer successful render with an er
     resolveOlder({ ok: false } as Response);
     assert.equal(await older, null);
     assert.equal(newer!.destroyed, false);
-    assert.equal(host.children.length, 1);
+    assert.equal(host.children.length, 2);
     assert.equal(host.classList.contains('ss-diagram-error'), false);
     const missingNode = newer!.diagram.save().nodes[0];
     assert.equal(missingNode.isPlaceholder, true);

@@ -59,6 +59,9 @@ interface ContextActionContext {
 export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     private readonly div: HTMLElement;
     private readonly catalog: StockSharpCatalog;
+    private readonly fullscreenElement: HTMLElement;
+    private readonly fullscreenDocument: Document | null;
+    private readonly fullscreenButton: HTMLButtonElement;
     private readonly overviewContainer: HTMLElement | null;
     private readonly zoomLabel: HTMLElement | null;
     private readonly canvas: CanvasDiagram;
@@ -70,6 +73,8 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     private helpEnabled = true;
     private loading = false;
     private destroyed = false;
+    private fullscreen = false;
+    private fullscreenButtonVisible = true;
     private linkValidator: LinkValidator | null = null;
     private readonly contextActions = new DiagramActionRegistry<ContextCommand, ContextActionContext>();
 
@@ -77,6 +82,9 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         super();
         this.div = options.div;
         this.catalog = options.catalog;
+        this.fullscreenElement = options.fullscreenElement ?? this.div;
+        this.fullscreenDocument = this.fullscreenElement.ownerDocument
+            ?? (typeof document === 'undefined' ? null : document);
         this.overviewContainer = options.overviewContainer ?? null;
         this.zoomLabel = options.zoomLabel ?? null;
         this.clipboard = this.resolveClipboard(options.clipboard);
@@ -86,9 +94,20 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
             gridSnap: options.gridSnap ?? true,
             gridSize: options.gridSize,
         });
+        this.fullscreenButtonVisible = options.showFullscreenButton ?? true;
+        this.prepareFullscreenButtonHost();
+        this.fullscreenButton = this.createFullscreenButton();
+        this.updateFullscreenButton();
         this.registerContextActions();
         this.bindCanvasEvents();
         this.disposables.push(this.catalog.on('portTypesChanged', () => this.applySocketTheme()));
+        if (typeof this.fullscreenDocument?.addEventListener === 'function') {
+            const handleFullscreenChange = (): void => this.handleFullscreenChange();
+            this.fullscreenDocument.addEventListener('fullscreenchange', handleFullscreenChange);
+            this.disposables.push(() => this.fullscreenDocument?.removeEventListener(
+                'fullscreenchange', handleFullscreenChange,
+            ));
+        }
         this.updateZoomLabel();
     }
 
@@ -359,6 +378,42 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         this.canvas.resize(width, height);
     }
 
+    isFullscreen(): boolean {
+        return this.fullscreenDocument?.fullscreenElement === this.fullscreenElement;
+    }
+
+    setFullscreenButtonVisible(visible: boolean): void {
+        this.fullscreenButtonVisible = visible;
+        this.fullscreenButton.hidden = !visible;
+        this.fullscreenButton.style.display = visible ? 'inline-flex' : 'none';
+    }
+
+    isFullscreenButtonVisible(): boolean {
+        return this.fullscreenButtonVisible;
+    }
+
+    async enterFullscreen(options?: FullscreenOptions): Promise<void> {
+        if (this.destroyed) throw new Error('StockSharpDiagram has been destroyed.');
+        if (this.isFullscreen()) return;
+        if (typeof this.fullscreenElement.requestFullscreen !== 'function') {
+            throw new Error('Fullscreen API is not available in this browser.');
+        }
+        await this.fullscreenElement.requestFullscreen(options);
+    }
+
+    async exitFullscreen(): Promise<void> {
+        if (!this.isFullscreen()) return;
+        if (typeof this.fullscreenDocument?.exitFullscreen !== 'function') {
+            throw new Error('Fullscreen API is not available in this browser.');
+        }
+        await this.fullscreenDocument.exitFullscreen();
+    }
+
+    async toggleFullscreen(options?: FullscreenOptions): Promise<void> {
+        if (this.isFullscreen()) await this.exitFullscreen();
+        else await this.enterFullscreen(options);
+    }
+
     setTheme(options: DiagramThemeOptions): void {
         const {
             diagramBackground,
@@ -518,9 +573,93 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
 
     destroy(): void {
         if (this.destroyed) return;
+        if (this.isFullscreen()) void this.exitFullscreen().catch(() => undefined);
         this.destroyed = true;
         for (const dispose of this.disposables.splice(0).reverse()) dispose();
         this.canvas.destroy();
+    }
+
+    private handleFullscreenChange(): void {
+        const fullscreen = this.isFullscreen();
+        if (this.fullscreen === fullscreen) return;
+        this.fullscreen = fullscreen;
+        this.updateFullscreenButton();
+        this.emit('fullscreenChanged', { fullscreen });
+        const resize = (): void => {
+            if (!this.destroyed) this.resize(this.div.clientWidth, this.div.clientHeight);
+        };
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(resize);
+        else resize();
+    }
+
+    private prepareFullscreenButtonHost(): void {
+        const previous = this.div.style.position;
+        const position = typeof getComputedStyle === 'function'
+            ? getComputedStyle(this.div).position
+            : previous;
+        if (position !== '' && position !== 'static' && position !== undefined) return;
+        this.div.style.position = 'relative';
+        this.disposables.push(() => {
+            if (this.div.style.position === 'relative') this.div.style.position = previous;
+        });
+    }
+
+    private createFullscreenButton(): HTMLButtonElement {
+        const owner = this.div.ownerDocument ?? this.fullscreenDocument ?? document;
+        const button = owner.createElement('button');
+        button.type = 'button';
+        button.className = 'ssdiagram-fullscreen-button';
+        button.setAttribute('data-ssdiagram-fullscreen-button', '');
+        Object.assign(button.style, {
+            position: 'absolute',
+            top: '8px',
+            right: '8px',
+            zIndex: '4',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '30px',
+            height: '30px',
+            padding: '0',
+            border: '1px solid var(--ssdiagram-control-border, var(--t-border, #3a4250))',
+            borderRadius: '5px',
+            background: 'var(--ssdiagram-control-background, var(--t-surface, rgba(18, 21, 28, 0.9)))',
+            color: 'var(--ssdiagram-control-color, var(--t-text, #eaecef))',
+            boxSizing: 'border-box',
+            cursor: 'pointer',
+            opacity: '0.9',
+        });
+        const click = (): void => {
+            void this.toggleFullscreen({ navigationUI: 'hide' }).catch((error: unknown) => {
+                console.error('ssdiagram: fullscreen request failed', error);
+            });
+        };
+        button.addEventListener('click', click);
+        this.div.appendChild(button);
+        this.disposables.push(() => {
+            button.removeEventListener('click', click);
+            button.remove();
+        });
+        button.hidden = !this.fullscreenButtonVisible;
+        button.style.display = this.fullscreenButtonVisible ? 'inline-flex' : 'none';
+        return button;
+    }
+
+    private updateFullscreenButton(): void {
+        const fullscreen = this.isFullscreen();
+        const label = fullscreen ? 'Exit fullscreen' : 'Enter fullscreen';
+        const path = fullscreen
+            ? 'M4 9h5V4M20 9h-5V4M4 15h5v5M20 15h-5v5'
+            : 'M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5';
+        this.fullscreenButton.className = fullscreen
+            ? 'ssdiagram-fullscreen-button is-active'
+            : 'ssdiagram-fullscreen-button';
+        this.fullscreenButton.title = label;
+        this.fullscreenButton.setAttribute('aria-label', label);
+        this.fullscreenButton.setAttribute('aria-pressed', String(fullscreen));
+        this.fullscreenButton.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" `
+            + 'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" '
+            + `stroke-linejoin="round"><path d="${path}"/></svg>`;
     }
 
     private bindCanvasEvents(): void {

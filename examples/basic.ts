@@ -11,6 +11,7 @@ import {
 
 const root = document.documentElement;
 const diagramHost = document.querySelector<HTMLElement>('#diagram');
+const canvasPanel = document.querySelector<HTMLElement>('.canvas-panel');
 const paletteHost = document.querySelector<HTMLElement>('#palette');
 const search = document.querySelector<HTMLInputElement>('#paletteSearch');
 const status = document.querySelector<HTMLElement>('#status');
@@ -22,8 +23,10 @@ const indicatorPeriod = document.querySelector<HTMLInputElement>('#indicatorPeri
 const indicatorInputType = document.querySelector<HTMLSelectElement>('#indicatorInputType');
 const indicatorInputMulti = document.querySelector<HTMLInputElement>('#indicatorInputMulti');
 const indicatorOutputMulti = document.querySelector<HTMLInputElement>('#indicatorOutputMulti');
+const themeButton = document.querySelector<HTMLButtonElement>('#themeBtn');
 
-if (diagramHost === null || paletteHost === null || search === null || status === null || modelStats === null
+if (diagramHost === null || canvasPanel === null || paletteHost === null || search === null
+    || status === null || modelStats === null || themeButton === null
     || indicatorDialog === null || indicatorForm === null || indicatorTitle === null || indicatorPeriod === null
     || indicatorInputType === null || indicatorInputMulti === null || indicatorOutputMulti === null)
     throw new Error('Diagram demo markup is incomplete.');
@@ -112,7 +115,12 @@ const catalog = new StockSharpCatalog();
 ].forEach((node) => catalog.addNodeType(node));
 
 const palette = new StockSharpPalette({ div: paletteHost, catalog });
-const diagram = new StockSharpDiagram({ div: diagramHost, catalog });
+const diagram = new StockSharpDiagram({
+    div: diagramHost,
+    catalog,
+    fullscreenElement: canvasPanel,
+    showFullscreenButton: true,
+});
 (window as Window & { stockSharpDiagramDemo?: StockSharpDiagram }).stockSharpDiagramDemo = diagram;
 
 palette.on('nodeActivated', ({ node: activated }) => {
@@ -189,7 +197,10 @@ function applyTheme(): void {
         ? { diagramBackground: '#f5f7fa', gridColor: '#e2e8f0', linkMaxLightness: 0.42 }
         : { diagramBackground: '#131820', gridColor: '#1e2633', linkMaxLightness: 1 });
     diagram.applySocketTheme();
-    document.querySelector<HTMLButtonElement>('#themeBtn')!.textContent = light ? '☾ Dark' : '☼ Light';
+    const nextTheme = light ? 'dark' : 'light';
+    themeButton.classList.toggle('is-light', light);
+    themeButton.title = `Switch to ${nextTheme} theme`;
+    themeButton.setAttribute('aria-label', `Switch to ${nextTheme} theme`);
 }
 
 function reset(nodeErrors: Readonly<Record<string, string>> = {}): void {
@@ -230,6 +241,9 @@ diagram.on('linkValidation', ({ allowed, reason }) => {
         'host-rejected': 'Rejected by the host application.',
     };
     setStatus(messages[reason] ?? `Rejected: ${reason}.`);
+});
+diagram.on('fullscreenChanged', ({ fullscreen }) => {
+    setStatus(fullscreen ? 'Diagram expanded to fullscreen.' : 'Diagram left fullscreen.');
 });
 diagram.on('nodeOpen', ({ nodes }) => {
     const selected = nodes[0];
@@ -345,7 +359,7 @@ document.querySelector<HTMLButtonElement>('#loadErrorBtn')!.addEventListener('cl
     });
     setStatus('Loaded a damaged scheme. Hover the red node for details.');
 });
-document.querySelector<HTMLButtonElement>('#themeBtn')!.addEventListener('click', () => {
+themeButton.addEventListener('click', () => {
     light = !light; applyTheme();
 });
 document.querySelector<HTMLButtonElement>('#readonlyBtn')!.addEventListener('click', (event) => {
