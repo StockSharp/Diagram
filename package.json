@@ -85,12 +85,17 @@
   "scripts": {
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "api:check": "node tools/check-public-api.mjs",
+    "api:update": "node tools/check-public-api.mjs --update",
     "serve": "node serve.mjs",
     "build:tests": "node build-tests.mjs",
-    "test": "npm run typecheck && npm run build:tests && node --test \"tests/_dist/**/*.test.cjs\"",
+    "test": "npm run typecheck && npm run api:check && npm run build:tests && node --test \"tests/_dist/**/*.test.cjs\"",
+    "test:browser": "npm run build && playwright test",
+    "test:browser:update": "npm run build && playwright test --update-snapshots",
     "pack:check": "npm run build && npm pack --dry-run"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "@types/node": "^24.0.0",
     "esbuild": "^0.25.0",
     "typescript": "^5.8.0"

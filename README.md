@@ -268,14 +268,23 @@ npm test
 npm run build
 npm run serve
 npm run pack:check
+npm run api:check
+npm run api:update  # only after reviewing an intentional public API change
+npm run test:browser
+npm run test:browser:update  # only after reviewing visual changes
 ```
 
 The local demo is served at http://localhost:8792/demo/index.html.
 
-CI verifies type checking, unit/integration tests, all bundles and tarball
-contents. GitHub Pages publishes the demo from `main`; GitHub Releases receive
-the built tarball. Public npm publication is intentionally disabled with
-`private: true` under the proprietary StockSharp license.
+The browser suite covers Chromium smoke/lifecycle scenarios at DPR 1 and 2,
+plus reviewed dark/light overview goldens.
+
+CI verifies type checking, the reviewed declaration snapshot, unit/integration
+tests, Chromium smoke/lifecycle checks, dark/light overview goldens, all
+bundles and tarball contents. GitHub Pages publishes the demo from `main`;
+GitHub Releases receive the built tarball. Public npm publication is
+intentionally disabled with `private: true` under the proprietary StockSharp
+license.
 
 ## License
 

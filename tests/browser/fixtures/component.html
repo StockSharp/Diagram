@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diagram browser fixture</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0b0e11; }
+    #diagram { width: 900px; height: 600px; }
+  </style>
+</head>
+<body>
+  <div id="diagram"></div>
+  <script src="/dist/ssdiagram.js"></script>
+  <script>
+    (() => {
+      const api = window.SSDiagram;
+      const host = document.getElementById('diagram');
+      const catalog = new api.StockSharpCatalog();
+      catalog.addPortType(new api.PortType({ name: 'Value', color: 'hsl(202, 72%, 58%)' }));
+      const diagram = new api.StockSharpDiagram({ div: host, catalog });
+      diagram.load([
+        new api.DiagramNode({
+          id: 'source', name: 'Source', x: 70, y: 90,
+          outPorts: [{ id: 'out', name: 'Value', type: 'Value' }],
+        }),
+        new api.DiagramNode({
+          id: 'fast', name: 'Fast', x: 330, y: 45,
+          inPorts: [{ id: 'in', name: 'Value', type: 'Value' }],
+          outPorts: [{ id: 'out', name: 'Value', type: 'Value' }],
+        }),
+        new api.DiagramNode({
+          id: 'slow', name: 'Slow', x: 330, y: 230,
+          inPorts: [{ id: 'in', name: 'Value', type: 'Value' }],
+          outPorts: [{ id: 'out', name: 'Value', type: 'Value' }],
+        }),
+        new api.DiagramNode({
+          id: 'result', name: 'Result', x: 610, y: 140,
+          inPorts: [
+            { id: 'fast', name: 'Fast', type: 'Value' },
+            { id: 'slow', name: 'Slow', type: 'Value' },
+          ],
+        }),
+      ], [
+        new api.Link({ outNode: 'source', outPort: 'out', inNode: 'fast', inPort: 'in' }),
+        new api.Link({ outNode: 'source', outPort: 'out', inNode: 'slow', inPort: 'in' }),
+        new api.Link({ outNode: 'fast', outPort: 'out', inNode: 'result', inPort: 'fast' }),
+        new api.Link({ outNode: 'slow', outPort: 'out', inNode: 'result', inPort: 'slow' }),
+      ]);
+      diagram.resize(900, 600);
+      diagram.setViewState({ zoom: 1, panX: 20, panY: 35, overviewVisible: true });
+
+      const applyTheme = (light) => {
+        document.body.style.background = light ? '#f5f7fa' : '#0b0e11';
+        diagram.setTheme(light ? {
+          diagramBackground: '#f5f7fa',
+          gridColor: '#e2e8f0',
+          linkMaxLightness: 0.42,
+          overviewBackground: '#ffffff',
+          overviewBorderColor: '#cbd5e1',
+          overviewViewportColor: '#d97706',
+          overviewViewportFill: 'rgba(217,119,6,0.10)',
+        } : {
+          diagramBackground: '#131820',
+          gridColor: '#1e2633',
+          linkMaxLightness: 1,
+          overviewBackground: '#101014',
+          overviewBorderColor: '#3a3a44',
+          overviewViewportColor: '#4aa3ff',
+          overviewViewportFill: 'rgba(74,163,255,0.10)',
+        });
+      };
+
+      window.fixtureDiagram = diagram;
+      window.applyFixtureTheme = applyTheme;
+      applyTheme(false);
+      requestAnimationFrame(() => requestAnimationFrame(() => { window.fixtureReady = true; }));
+    })();
+  </script>
+</body>
+</html>
