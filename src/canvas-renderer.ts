@@ -1,9 +1,4 @@
-// ssgraph — in-house canvas diagram editor.
-//
-// Shaped to the *Layer A* contract: the public API and event set mirror
-// `StockSharpDiagram` / `diagram/types.ts` / `DiagramEvents`, NOT the
-// legacy declarative `window.go` surface. Compatibility-only calls collapse
-// to the corresponding procedural operations here.
+// Internal dependency-free canvas renderer used by StockSharpDiagram.
 //
 // Dependency-free, pure 2D canvas. Demonstrates the hard parts: typed
 // in/out ports, bezier links, node drag, drag-to-link with validation,
@@ -567,7 +562,7 @@ export class Diagram {
     private readonly domDisposables: Array<() => void> = [];
     private destroyed = false;
 
-    // overview minimap (go.Overview parity)
+    // Overview minimap.
     private introStart: number | null = null;
     private overviewVisible = true;
     private ovDragging = false;
@@ -598,7 +593,7 @@ export class Diagram {
         (this.canvas.style as unknown as { webkitTouchCallout: string }).webkitTouchCallout = 'none';
         this.host.appendChild(this.canvas);
         const ctx = this.canvas.getContext('2d');
-        if (ctx === null) throw new Error('ssgraph: 2d context unavailable');
+        if (ctx === null) throw new Error('ssdiagram: 2d context unavailable');
         this.ctx = ctx;
         this.resize(this.host.clientWidth || 800, this.host.clientHeight || 480);
         this.bind();
@@ -630,7 +625,7 @@ export class Diagram {
     }
 
     private normalizeGridSize(size: number): number {
-        if (!Number.isFinite(size) || size <= 0) throw new RangeError('ssgraph: grid size must be a positive finite number');
+        if (!Number.isFinite(size) || size <= 0) throw new RangeError('ssdiagram: grid size must be a positive finite number');
         return size;
     }
 
@@ -650,8 +645,8 @@ export class Diagram {
 
     addDiagramNode(init: DiagramNodeInit): string {
         const id = init.id ?? this.nextNodeId();
-        if (id.trim().length === 0) throw new Error('ssgraph: node id cannot be empty');
-        if (this.nodes.some((node) => node.id === id)) throw new Error(`ssgraph: duplicate node id "${id}"`);
+        if (id.trim().length === 0) throw new Error('ssdiagram: node id cannot be empty');
+        if (this.nodes.some((node) => node.id === id)) throw new Error(`ssdiagram: duplicate node id "${id}"`);
         const fullInit: DiagramNodeInit = { ...init, id };
         this.doAddNode(fullInit);
         this.record({
@@ -749,7 +744,7 @@ export class Diagram {
         }
     }
     nudgeSelection(dx: number, dy: number): boolean {
-        if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new RangeError('ssgraph: nudge delta must be finite');
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new RangeError('ssdiagram: nudge delta must be finite');
         if ((dx === 0 && dy === 0) || this.selectedNodes.size === 0) return false;
         const moves = [...this.selectedNodes].map((node) => ({
             id: node.id,
@@ -792,7 +787,7 @@ export class Diagram {
             if (!validation.allowed) return false;
             const sibling = this.createDynamicSibling(toNode, toPort, fromPort);
             let added = false;
-            const failed = new Error('ssgraph: dynamic link transaction failed');
+            const failed = new Error('ssdiagram: dynamic link transaction failed');
             try {
                 this.withTransaction('add dynamic link', () => {
                     if (!this.addPort(toNode.id, 'in', sibling)) throw failed;
@@ -990,7 +985,7 @@ export class Diagram {
         if (dynamicSibling !== null || pruneOldSibling) {
             this.withTransaction('relink dynamic link', () => {
                 if (dynamicSibling !== null && !this.addPort(after.to, 'in', dynamicSibling)) {
-                    throw new Error('ssgraph: could not create a dynamic sibling port');
+                    throw new Error('ssdiagram: could not create a dynamic sibling port');
                 }
                 apply();
                 if (pruneOldSibling) this.pruneDynamicSibling(before.to, before.toPort);
@@ -1053,7 +1048,7 @@ export class Diagram {
             : node?.outPorts.find((candidate) => candidate.id === portId);
         if (port === undefined) return false;
         if (patch.maxLinks !== undefined && (!Number.isInteger(patch.maxLinks) || patch.maxLinks < 0)) {
-            throw new RangeError('ssgraph: port maxLinks must be a non-negative integer');
+            throw new RangeError('ssdiagram: port maxLinks must be a non-negative integer');
         }
         const compatibilityChanged = (patch.type !== undefined && patch.type !== port.type)
             || (patch.availableTypes !== undefined
@@ -1201,7 +1196,7 @@ export class Diagram {
         for (const link of links) {
             const id = link.id ?? this.nextLinkId();
             if (this.links.some((existing) => existing.id === id)) {
-                throw new Error(`ssgraph: duplicate link id "${id}"`);
+                throw new Error(`ssdiagram: duplicate link id "${id}"`);
             }
             const model = new LinkModel(link.from, link.fromPort, link.to, link.toPort, id, link.metadata);
             if (!this.links.some((existing) => existing.key() === model.key())) this.links.push(model);
@@ -1297,10 +1292,7 @@ export class Diagram {
         this.emitViewChanged(true);
         this.scheduleDraw();
     }
-    // Compat helpers used by the ssdiagram shim. They expose internal
-    // state the host loop already touches via private members; keeping
-    // them on the public class avoids reaching into
-    // private fields with `as unknown` from outside.
+    // Renderer operations consumed by the high-level component.
     findNode(id: string): NodeModel | undefined { return this.nodes.find((n) => n.id === id); }
     requestRedraw(): void { this.relayout(); this.scheduleDraw(); }
     /**
@@ -1309,10 +1301,10 @@ export class Diagram {
      * the whole graph without changing the visible viewport.
      */
     takeScreenshot(options: DiagramScreenshotOptions = {}): HTMLCanvasElement {
-        if (this.destroyed) throw new Error('ssgraph: cannot export a destroyed diagram');
+        if (this.destroyed) throw new Error('ssdiagram: cannot export a destroyed diagram');
         const scope = options.scope ?? 'viewport';
         if (scope !== 'viewport' && scope !== 'content') {
-            throw new RangeError(`ssgraph: unsupported screenshot scope "${String(scope)}"`);
+            throw new RangeError(`ssdiagram: unsupported screenshot scope "${String(scope)}"`);
         }
 
         if (scope === 'viewport' && Object.keys(options).length === 0) {
@@ -1320,7 +1312,7 @@ export class Diagram {
             copy.width = this.canvas.width;
             copy.height = this.canvas.height;
             const copyContext = copy.getContext('2d');
-            if (copyContext === null) throw new Error('ssgraph: screenshot 2d context unavailable');
+            if (copyContext === null) throw new Error('ssdiagram: screenshot 2d context unavailable');
             copyContext.drawImage(this.canvas, 0, 0);
             return copy;
         }
@@ -1342,7 +1334,7 @@ export class Diagram {
         const pixelWidth = Math.ceil(width * pixelRatio);
         const pixelHeight = Math.ceil(height * pixelRatio);
         if (pixelWidth > 16384 || pixelHeight > 16384 || pixelWidth * pixelHeight > 268_435_456) {
-            throw new RangeError(`ssgraph: screenshot is too large (${pixelWidth}x${pixelHeight})`);
+            throw new RangeError(`ssdiagram: screenshot is too large (${pixelWidth}x${pixelHeight})`);
         }
 
         const output = document.createElement('canvas');
@@ -1351,7 +1343,7 @@ export class Diagram {
         output.style.width = `${width}px`;
         output.style.height = `${height}px`;
         const outputContext = output.getContext('2d');
-        if (outputContext === null) throw new Error('ssgraph: screenshot 2d context unavailable');
+        if (outputContext === null) throw new Error('ssdiagram: screenshot 2d context unavailable');
 
         const previous = {
             ctx: this.ctx,
@@ -1398,14 +1390,14 @@ export class Diagram {
 
     private positiveScreenshotNumber(value: number, name: string): number {
         if (!Number.isFinite(value) || value <= 0) {
-            throw new RangeError(`ssgraph: screenshot ${name} must be a positive finite number`);
+            throw new RangeError(`ssdiagram: screenshot ${name} must be a positive finite number`);
         }
         return value;
     }
 
     private nonNegativeScreenshotNumber(value: number, name: string): number {
         if (!Number.isFinite(value) || value < 0) {
-            throw new RangeError(`ssgraph: screenshot ${name} must be a non-negative finite number`);
+            throw new RangeError(`ssdiagram: screenshot ${name} must be a non-negative finite number`);
         }
         return value;
     }
@@ -1522,6 +1514,7 @@ export class Diagram {
         this.scheduleDraw();
     }
     viewToWorld(sx: number, sy: number): [number, number] { return this.toWorld(sx, sy); }
+    worldToView(wx: number, wy: number): [number, number] { return this.toScreen(wx, wy); }
     selectNodeById(id: string | null): void {
         const node = id === null ? null : (this.nodes.find((n) => n.id === id) ?? null);
         this.selectNode(node);
@@ -2919,7 +2912,7 @@ export class Diagram {
         }
     }
 
-    // ---- overview minimap (go.Overview parity) ----------------------
+    // ---- overview minimap -------------------------------------------
     private overviewRect(): { x: number; y: number; w: number; h: number } | null {
         if (!this.overviewVisible || this.width < 320 || this.height < 220) return null;
         const w = 190, h = 130, m = 14;

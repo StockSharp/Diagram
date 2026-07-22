@@ -87,7 +87,9 @@ export type {
     DiagramClipboard,
     DiagramGridSettings,
     DiagramLoadOptions,
+    DiagramNodeBounds,
     DiagramOptions,
+    DiagramPoint,
     DiagramScreenshotOptions,
     DiagramScreenshotScope,
     DiagramThemeOptions,
@@ -167,29 +169,3 @@ export type {
     DiagramEmbedSchemeLink,
     DiagramEmbedSchemeNode,
 } from './embed.js';
-
-// Low-level canvas engine. New application code normally uses
-// StockSharpDiagram; direct renderer consumers can use this alias
-// or the dedicated "ssdiagram/ssgraph" entry point.
-export {
-    Diagram as CanvasDiagram,
-    LinkModel,
-    NodeModel,
-    PortModel,
-    version,
-} from './ssgraph.js';
-
-export type {
-    DiagramNodeInit as CanvasDiagramNodeInit,
-    DiagramOptions as CanvasDiagramOptions,
-    DiagramScreenshotOptions as CanvasDiagramScreenshotOptions,
-    DiagramScreenshotScope as CanvasDiagramScreenshotScope,
-    LinkInit as CanvasLinkInit,
-    LinkValidator as CanvasLinkValidator,
-    LinkValidatorArgs as CanvasLinkValidatorArgs,
-    NodeErrorKind as CanvasNodeErrorKind,
-    NodeErrorOptions as CanvasNodeErrorOptions,
-    PortDirection as CanvasPortDirection,
-    PortInit as CanvasPortInit,
-    PortUpdate as CanvasPortUpdate,
-} from './ssgraph.js';

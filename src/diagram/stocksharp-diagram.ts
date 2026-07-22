@@ -21,11 +21,10 @@ import {
     type DiagramNodeInit as CanvasNodeInit,
     type LinkInit as CanvasLinkInit,
     type LinkModel,
-    type LinkValidationResult,
     type NodeModel,
     type PortInit as CanvasPortInit,
     type PortModel,
-} from '../ssgraph.js';
+} from '../canvas-renderer.js';
 import { StockSharpCatalog } from './catalog.js';
 import { EventEmitter } from './event-emitter.js';
 import type {
@@ -34,9 +33,12 @@ import type {
     ContextCommand,
     DiagramLoadOptions,
     DiagramGridSettings,
+    DiagramNodeBounds,
+    DiagramPoint,
     DiagramOptions,
     DiagramScreenshotOptions,
     DiagramThemeOptions,
+    LinkValidationResult,
     LinkValidator,
     NodeErrorKind,
     NodeErrorOptions,
@@ -111,16 +113,6 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         this.updateZoomLabel();
     }
 
-    /** Direct renderer controller. It replaces the old go-compatible escape hatch. */
-    get renderer(): CanvasDiagram {
-        return this.canvas;
-    }
-
-    /** @deprecated Use renderer. The returned value is the canvas renderer, not a go.Diagram. */
-    get goDiagram(): CanvasDiagram {
-        return this.canvas;
-    }
-
     setLinkValidator(validator: LinkValidator | null): void {
         this.linkValidator = validator;
         this.canvas.setLinkValidator(validator === null ? null : ({ fromNode, fromPort, toNode, toPort }) => validator({
@@ -165,6 +157,30 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
 
     moveNode(nodeId: string, x: number, y: number): void {
         this.canvas.moveNode(nodeId, x, y);
+    }
+
+    getNodeBounds(nodeId: string): DiagramNodeBounds | null {
+        const node = this.canvas.findNode(nodeId);
+        return node === undefined
+            ? null
+            : { x: node.x, y: node.y, width: node.w, height: node.h };
+    }
+
+    getPortPosition(
+        nodeId: string,
+        direction: PortDirection,
+        portId: string,
+    ): DiagramPoint | null {
+        const node = this.canvas.findNode(nodeId);
+        const port = direction === 'in'
+            ? node?.inPorts.find((candidate) => candidate.id === portId)
+            : node?.outPorts.find((candidate) => candidate.id === portId);
+        return port === undefined ? null : { x: port.cx, y: port.cy };
+    }
+
+    worldToView(x: number, y: number): DiagramPoint {
+        const [viewX, viewY] = this.canvas.worldToView(x, y);
+        return { x: viewX, y: viewY };
     }
 
     setGridSnap(enabled: boolean, size?: number): void {
@@ -466,6 +482,7 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     cutSelection(): void { this.canvas.cutSelection(); }
     copySelection(): void { this.canvas.copySelection(); }
     pasteSelection(): void { this.canvas.pasteSelection(); }
+    deleteSelection(): void { this.canvas.deleteSelection(); }
 
     async copySelectionToClipboard(): Promise<boolean> {
         const document = this.canvas.copySelectionDocument();

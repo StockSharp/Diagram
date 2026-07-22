@@ -13,7 +13,6 @@ export interface DiagramOptions {
     fullscreenElement?: HTMLElement | null;
     /** Show the built-in top-right fullscreen button. Defaults to true. */
     showFullscreenButton?: boolean;
-    overviewDiv?: HTMLElement | null;
     overviewContainer?: HTMLElement | null;
     zoomLabel?: HTMLElement | null;
     /** Optional system clipboard adapter. Pass null to force memory-only clipboard. */
@@ -29,8 +28,38 @@ export interface DiagramGridSettings {
     size: number;
 }
 
-export type DiagramScreenshotScope = import('../ssgraph.js').DiagramScreenshotScope;
-export type DiagramScreenshotOptions = import('../ssgraph.js').DiagramScreenshotOptions;
+export interface DiagramPoint {
+    x: number;
+    y: number;
+}
+
+export interface DiagramNodeBounds extends DiagramPoint {
+    width: number;
+    height: number;
+}
+
+export type DiagramScreenshotScope = 'viewport' | 'content';
+
+export interface DiagramScreenshotOptions {
+    /** Current viewport or the complete graph bounds. Defaults to viewport. */
+    scope?: DiagramScreenshotScope;
+    /** World-to-CSS-pixel scale for content export. Defaults to 1. */
+    scale?: number;
+    /** CSS-pixel padding around content export. Defaults to 32. */
+    padding?: number;
+    /** Output pixel density. Defaults to the current device pixel ratio. */
+    pixelRatio?: number;
+    /** Optional export-only background override. */
+    background?: string;
+    /** Defaults to true. */
+    includeGrid?: boolean;
+    /** Defaults to the current value for viewport and false for content. */
+    includeOverview?: boolean;
+    /** Defaults to true for viewport and false for content. */
+    includeSelection?: boolean;
+    /** Include debugger and error state. Defaults to true. */
+    includeRuntimeState?: boolean;
+}
 
 export interface DiagramClipboard {
     readText(): Promise<string>;
@@ -162,8 +191,23 @@ export interface LinkValidationPayload {
     reason: LinkValidationReason;
 }
 
-export type LinkValidationReason = import('../ssgraph.js').LinkValidationReason;
-export type LinkValidationResult = import('../ssgraph.js').LinkValidationResult;
+export type LinkValidationReason =
+    | 'allowed'
+    | 'missing-link'
+    | 'missing-node'
+    | 'missing-port'
+    | 'same-node'
+    | 'invalid-direction'
+    | 'incompatible-type'
+    | 'duplicate-link'
+    | 'source-limit'
+    | 'target-limit'
+    | 'host-rejected';
+
+export interface LinkValidationResult {
+    allowed: boolean;
+    reason: LinkValidationReason;
+}
 
 export interface LinkValidatorArgs {
     fromNode: DiagramNode;

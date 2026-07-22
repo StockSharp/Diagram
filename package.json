@@ -1,7 +1,7 @@
 {
   "name": "ssdiagram",
   "version": "0.1.0",
-  "description": "Complete StockSharp strategy-diagram stack: typed API, canvas runtime, palette, web embed and legacy compatibility.",
+  "description": "Complete StockSharp strategy-diagram stack: typed API, canvas runtime, palette and web embed.",
   "license": "UNLICENSED",
   "private": true,
   "type": "module",
@@ -12,10 +12,6 @@
     ".": {
       "types": "./dist/types/index.d.ts",
       "import": "./dist/esm/index.js"
-    },
-    "./ssgraph": {
-      "types": "./dist/types/ssgraph.d.ts",
-      "import": "./dist/esm/ssgraph.js"
     },
     "./diagram": {
       "types": "./dist/types/diagram/stocksharp-diagram.d.ts",
@@ -57,12 +53,7 @@
       "types": "./dist/types/embed.d.ts",
       "import": "./dist/esm/embed.js"
     },
-    "./legacy": {
-      "types": "./dist/types/ssdiagram.d.ts",
-      "import": "./dist/esm/ssdiagram.js"
-    },
     "./source": "./src/index.ts",
-    "./source/ssgraph": "./src/ssgraph.ts",
     "./source/diagram": "./src/diagram/stocksharp-diagram.ts",
     "./source/catalog": "./src/diagram/catalog.ts",
     "./source/palette": "./src/diagram/palette.ts",
@@ -72,8 +63,7 @@
     "./source/view-state": "./src/core/view-state.ts",
     "./source/history": "./src/core/history.ts",
     "./source/actions": "./src/core/action-registry.ts",
-    "./source/embed": "./src/embed.ts",
-    "./source/legacy": "./src/ssdiagram.ts"
+    "./source/embed": "./src/embed.ts"
   },
   "files": [
     "dist",

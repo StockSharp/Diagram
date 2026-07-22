@@ -1,3 +1,386 @@
+// FILE: canvas-renderer.d.ts
+import type { DiagramDocument, DiagramParameterSchema, JsonObject } from './core/model.js';
+import type { DiagramGlobalErrorKind, DiagramInteractionPermissions, DiagramPortRuntimeState, DiagramRuntimeState, DiagramSelection, DiagramViewState } from './core/state.js';
+export type PortDirection = 'in' | 'out';
+export type PortClickAction = 'leftClick' | 'rightClick';
+export interface PortInit {
+    id: string;
+    name: string;
+    description?: string;
+    type?: string;
+    maxLinks?: number;
+    availableTypes?: string[];
+    isDynamic?: boolean;
+    dynamicMode?: string;
+    isSibling?: boolean;
+    metadata?: JsonObject;
+}
+/** Mutable port properties. Port identity and direction remain stable. */
+export type PortUpdate = Partial<Omit<PortInit, 'id'>>;
+export interface DiagramNodeInit {
+    id?: string;
+    typeId?: string;
+    name: string;
+    description?: string;
+    groupName?: string;
+    color?: string;
+    border?: string;
+    icon?: string;
+    x?: number;
+    y?: number;
+    inPorts?: PortInit[];
+    outPorts?: PortInit[];
+    /** Non-empty host action enables node double-click tracking. */
+    openAction?: string;
+    /** Transient error discovered while loading a scheme. */
+    loadError?: string;
+    /** Persistent host text. Runtime/load errors are stored separately. */
+    message?: string;
+    parameters?: DiagramParameterSchema[];
+    paramValues?: Record<string, string>;
+    metadata?: JsonObject;
+    /** Transient missing-catalog marker; excluded from saveDocument(). */
+    isPlaceholder?: boolean;
+}
+export interface LinkInit {
+    id?: string;
+    from: string;
+    fromPort: string;
+    to: string;
+    toPort: string;
+    metadata?: JsonObject;
+}
+export type DiagramNodeSnapshot = DiagramNodeInit & Required<Pick<DiagramNodeInit, 'id' | 'typeId' | 'name' | 'color' | 'border' | 'x' | 'y'>> & {
+    inPorts: PortInit[];
+    outPorts: PortInit[];
+};
+export interface DiagramSnapshot {
+    nodes: DiagramNodeSnapshot[];
+    links: Array<Required<Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>>>;
+}
+export interface DiagramOptions {
+    host: HTMLElement;
+    background?: string;
+    gridColor?: string;
+    /** Snap dragged nodes to a world-space grid. Defaults to false for the low-level renderer. */
+    gridSnap?: boolean;
+    /** Positive world-space grid step. Defaults to 28. */
+    gridSize?: number;
+    /** Optional explicit socket-type → colour map; unknown types hash to a hue. */
+    typeColors?: Record<string, string>;
+    /** Ceiling (0..1) for link/socket colour lightness. Unset = full palette (tuned for a dark
+     *  canvas). A light theme sets a low ceiling so the otherwise-light link colours darken enough
+     *  to stay visible on a light canvas. */
+    linkMaxLightness?: number;
+    /** Optional minimap colours. When omitted they are derived from the
+     *  current canvas background, so a normal light/dark theme switch also
+     *  rethemes the overview. */
+    overviewBackground?: string;
+    overviewBorderColor?: string;
+    overviewViewportColor?: string;
+    overviewViewportFill?: string;
+}
+export type DiagramScreenshotScope = 'viewport' | 'content';
+export interface DiagramScreenshotOptions {
+    /** Current viewport (Charts/WPF parity) or the complete graph bounds. Defaults to viewport. */
+    scope?: DiagramScreenshotScope;
+    /** World-to-CSS-pixel scale for content export. Defaults to 1. */
+    scale?: number;
+    /** CSS-pixel padding around content export. Defaults to 32. */
+    padding?: number;
+    /** Output pixel density. Defaults to the renderer's current device pixel ratio. */
+    pixelRatio?: number;
+    /** Optional export-only background override. */
+    background?: string;
+    /** Defaults to true. */
+    includeGrid?: boolean;
+    /** Defaults to the current value for viewport and false for content. */
+    includeOverview?: boolean;
+    /** Defaults to true for viewport and false for content. */
+    includeSelection?: boolean;
+    /** Include debugger and error state. Defaults to true. */
+    includeRuntimeState?: boolean;
+}
+export interface LinkValidatorArgs {
+    fromNode: NodeModel;
+    fromPort: PortModel;
+    toNode: NodeModel;
+    toPort: PortModel;
+}
+export type LinkValidator = (args: LinkValidatorArgs) => boolean;
+export type LinkValidationReason = 'allowed' | 'missing-link' | 'missing-node' | 'missing-port' | 'same-node' | 'invalid-direction' | 'incompatible-type' | 'duplicate-link' | 'source-limit' | 'target-limit' | 'host-rejected';
+export interface LinkValidationResult {
+    allowed: boolean;
+    reason: LinkValidationReason;
+}
+export type NodeErrorKind = 'runtime' | 'load';
+export interface NodeErrorOptions {
+    /** Runtime errors flash the border; load errors use a red background. */
+    kind?: NodeErrorKind;
+    /** Disable the initial runtime-error border flash. Defaults to true. */
+    animate?: boolean;
+}
+export interface DiagramEvents {
+    nodeAdded: {
+        node: NodeModel;
+    };
+    nodeRemoved: {
+        node: NodeModel;
+    };
+    nodeMoved: {
+        node: NodeModel;
+    };
+    nodeChanged: {
+        node: NodeModel;
+    };
+    nodeSelected: {
+        node: NodeModel | null;
+        selected: boolean;
+    };
+    nodeHover: {
+        node: NodeModel;
+        hovering: boolean;
+    };
+    linkAdded: {
+        link: LinkModel;
+    };
+    linkRemoved: {
+        link: LinkModel;
+    };
+    linkRelinked: {
+        link: LinkModel;
+        previous: LinkInit & {
+            id: string;
+        };
+    };
+    linkSelected: {
+        link: LinkModel | null;
+        selected: boolean;
+    };
+    linkHover: {
+        link: LinkModel;
+        hovering: boolean;
+    };
+    linkValidation: {
+        fromNode: NodeModel;
+        from: PortModel;
+        toNode: NodeModel;
+        to: PortModel;
+        allowed: boolean;
+        reason: LinkValidationReason;
+    };
+    portSelected: {
+        node: NodeModel;
+        port: PortModel;
+    };
+    portClicked: {
+        node: NodeModel;
+        port: PortModel;
+        action: PortClickAction;
+        ctrlKey: boolean;
+        shiftKey: boolean;
+        altKey: boolean;
+        metaKey: boolean;
+    };
+    portHover: {
+        node: NodeModel;
+        port: PortModel;
+        hovering: boolean;
+    };
+    nodeOpen: {
+        node: NodeModel;
+    };
+    loadFinished: {
+        nodes: NodeModel[];
+        links: LinkModel[];
+    };
+    zoomChanged: {
+        scale: number;
+    };
+    viewChanged: DiagramViewState;
+    contextMenu: {
+        x: number;
+        y: number;
+        link: LinkModel | null;
+        node: NodeModel | null;
+        port: {
+            node: NodeModel;
+            port: PortModel;
+        } | null;
+    };
+    undoStackChanged: {
+        canUndo: boolean;
+        canRedo: boolean;
+    };
+    selectionChanged: DiagramSelection;
+    runtimeStateChanged: {
+        state: DiagramRuntimeState;
+    };
+}
+type EvName = keyof DiagramEvents;
+export declare class PortModel {
+    id: string;
+    name: string;
+    description: string;
+    type: string;
+    direction: PortDirection;
+    maxLinks: number;
+    availableTypes: string[];
+    isDynamic: boolean;
+    dynamicMode: string;
+    isSibling: boolean;
+    metadata: JsonObject;
+    cx: number;
+    cy: number;
+    constructor(init: PortInit, dir: PortDirection);
+    toInit(): PortInit;
+}
+export declare class NodeModel {
+    id: string;
+    typeId: string;
+    name: string;
+    description: string;
+    groupName: string;
+    color: string;
+    border: string;
+    icon: string;
+    openAction: string;
+    message: string;
+    parameters: DiagramParameterSchema[];
+    paramValues: Record<string, string>;
+    metadata: JsonObject;
+    isPlaceholder: boolean;
+    loadError: string;
+    runtimeError: string;
+    errorFlashStart: number | null;
+    x: number;
+    y: number;
+    inPorts: PortModel[];
+    outPorts: PortModel[];
+    w: number;
+    h: number;
+    constructor(init: DiagramNodeInit, id: string);
+    port(id: string): PortModel | undefined;
+    toInit(includeRuntimeState?: boolean): DiagramNodeInit & {
+        id: string;
+    };
+}
+export declare class LinkModel {
+    from: string;
+    fromPort: string;
+    to: string;
+    toPort: string;
+    readonly id: string;
+    readonly metadata: JsonObject;
+    constructor(from: string, fromPort: string, to: string, toPort: string, id?: string, metadata?: JsonObject);
+    key(): string;
+    toInit(): LinkInit & {
+        id: string;
+    };
+}
+export declare class Diagram {
+    constructor(opts: DiagramOptions);
+    on<K extends EvName>(ev: K, h: (p: DiagramEvents[K]) => void): () => void;
+    setLinkValidator(fn: LinkValidator | null): void;
+    setGridSnap(enabled: boolean, size?: number): void;
+    getGridSnap(): {
+        enabled: boolean;
+        size: number;
+    };
+    addDiagramNode(init: DiagramNodeInit): string;
+    removeDiagramNode(id: string): void;
+    moveNode(id: string, x: number, y: number): void;
+    nudgeSelection(dx: number, dy: number): boolean;
+    addLink(init: LinkInit): boolean;
+    removeLink(link: {
+        id?: string;
+        from: string;
+        fromPort: string;
+        to: string;
+        toPort: string;
+    }): void;
+    canUndo(): boolean;
+    canRedo(): boolean;
+    undo(): void;
+    redo(): void;
+    cutSelection(): void;
+    withTransaction<T>(label: string, fn: () => T): T;
+    deleteSelection(): void;
+    clear(): void;
+    relink(linkId: string, next: Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>): LinkValidationResult;
+    addPort(nodeId: string, direction: PortDirection, init: PortInit): boolean;
+    removePort(nodeId: string, direction: PortDirection, portId: string): boolean;
+    updatePortType(nodeId: string, direction: PortDirection, portId: string, type: string): boolean;
+    updatePort(nodeId: string, direction: PortDirection, portId: string, patch: PortUpdate): boolean;
+    setNodePorts(nodeId: string, inPorts: readonly PortInit[], outPorts: readonly PortInit[]): boolean;
+    updateNode(nodeId: string, patch: Partial<Pick<DiagramNodeInit, 'name' | 'description' | 'color' | 'border' | 'message' | 'openAction'>>): boolean;
+    setNodeParamValue(nodeId: string, name: string, value: string | undefined): boolean;
+    setShowNodeMessages(show: boolean): void;
+    load(nodes: DiagramNodeInit[], links: LinkInit[]): void;
+    save(): DiagramSnapshot;
+    loadDocument(source: DiagramDocument | string): void;
+    saveDocument(): DiagramDocument;
+    selectedNodeId(): string | null;
+    getSelection(): DiagramSelection;
+    selectNodesById(ids: readonly string[]): void;
+    selectLinkById(id: string | null): void;
+    selectPortById(nodeId: string, direction: PortDirection, portId: string): void;
+    getViewState(): DiagramViewState;
+    setViewState(state: DiagramViewState): void;
+    findNode(id: string): NodeModel | undefined;
+    requestRedraw(): void;
+    /**
+     * Creates a detached canvas. With no options it is an exact copy of the
+     * current frame, matching Charts.takeScreenshot(). Content scope renders
+     * the whole graph without changing the visible viewport.
+     */
+    takeScreenshot(options?: DiagramScreenshotOptions): HTMLCanvasElement;
+    getRuntimeState(): DiagramRuntimeState;
+    setRuntimeState(state: DiagramRuntimeState): void;
+    clearRuntimeState(): void;
+    setActiveNode(nodeId: string | null): boolean;
+    setPortRuntimeState(nodeId: string, direction: PortDirection, portId: string, patch: Partial<DiagramPortRuntimeState>): boolean;
+    setGlobalError(message: string | null, kind?: DiagramGlobalErrorKind): void;
+    setNodeError(id: string, message: string, options?: NodeErrorOptions): boolean;
+    clearNodeError(id: string, kind?: NodeErrorKind): boolean;
+    viewToWorld(sx: number, sy: number): [number, number];
+    worldToView(wx: number, wy: number): [number, number];
+    selectNodeById(id: string | null): void;
+    setZoom(scale: number): void;
+    zoomToFit(): void;
+    playIntro(): void;
+    setOverviewVisible(v: boolean): void;
+    setTypeColors(colors: Readonly<Record<string, string>>): void;
+    setTheme(t: {
+        background?: string;
+        gridColor?: string;
+        linkMaxLightness?: number;
+        overviewBackground?: string;
+        overviewBorderColor?: string;
+        overviewViewportColor?: string;
+        overviewViewportFill?: string;
+    }): void;
+    resize(w: number, h: number): void;
+    getInteractionPermissions(): DiagramInteractionPermissions;
+    setInteractionPermissions(patch: Partial<DiagramInteractionPermissions>): void;
+    /** View-only mode keeps selection, inspection and copy enabled. */
+    setReadOnly(value: boolean): void;
+    destroy(): void;
+    validateLink(init: Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>, excludeLinkId?: string): LinkValidationResult;
+    copySelection(): void;
+    copySelectionDocument(): DiagramDocument | null;
+    hasClipboard(): boolean;
+    getClipboardDocument(): DiagramDocument | null;
+    setClipboardDocument(source: DiagramDocument | string): void;
+    pasteSelection(): string[];
+    pasteDocument(source: DiagramDocument | string, offset?: {
+        x: number;
+        y: number;
+    }): string[];
+}
+export declare const version = "0.1.0";
+export {};
+
 // FILE: core/action-registry.d.ts
 export interface DiagramAction<TId extends string, TContext> {
     readonly id: TId;
@@ -237,7 +620,6 @@ export interface DiagramOptions {
     fullscreenElement?: HTMLElement | null;
     /** Show the built-in top-right fullscreen button. Defaults to true. */
     showFullscreenButton?: boolean;
-    overviewDiv?: HTMLElement | null;
     overviewContainer?: HTMLElement | null;
     zoomLabel?: HTMLElement | null;
     /** Optional system clipboard adapter. Pass null to force memory-only clipboard. */
@@ -251,8 +633,35 @@ export interface DiagramGridSettings {
     enabled: boolean;
     size: number;
 }
-export type DiagramScreenshotScope = import('../ssgraph.js').DiagramScreenshotScope;
-export type DiagramScreenshotOptions = import('../ssgraph.js').DiagramScreenshotOptions;
+export interface DiagramPoint {
+    x: number;
+    y: number;
+}
+export interface DiagramNodeBounds extends DiagramPoint {
+    width: number;
+    height: number;
+}
+export type DiagramScreenshotScope = 'viewport' | 'content';
+export interface DiagramScreenshotOptions {
+    /** Current viewport or the complete graph bounds. Defaults to viewport. */
+    scope?: DiagramScreenshotScope;
+    /** World-to-CSS-pixel scale for content export. Defaults to 1. */
+    scale?: number;
+    /** CSS-pixel padding around content export. Defaults to 32. */
+    padding?: number;
+    /** Output pixel density. Defaults to the current device pixel ratio. */
+    pixelRatio?: number;
+    /** Optional export-only background override. */
+    background?: string;
+    /** Defaults to true. */
+    includeGrid?: boolean;
+    /** Defaults to the current value for viewport and false for content. */
+    includeOverview?: boolean;
+    /** Defaults to true for viewport and false for content. */
+    includeSelection?: boolean;
+    /** Include debugger and error state. Defaults to true. */
+    includeRuntimeState?: boolean;
+}
 export interface DiagramClipboard {
     readText(): Promise<string>;
     writeText(value: string): Promise<void>;
@@ -358,8 +767,11 @@ export interface LinkValidationPayload {
     allowed: boolean;
     reason: LinkValidationReason;
 }
-export type LinkValidationReason = import('../ssgraph.js').LinkValidationReason;
-export type LinkValidationResult = import('../ssgraph.js').LinkValidationResult;
+export type LinkValidationReason = 'allowed' | 'missing-link' | 'missing-node' | 'missing-port' | 'same-node' | 'invalid-direction' | 'incompatible-type' | 'duplicate-link' | 'source-limit' | 'target-limit' | 'host-rejected';
+export interface LinkValidationResult {
+    allowed: boolean;
+    reason: LinkValidationReason;
+}
 export interface LinkValidatorArgs {
     fromNode: DiagramNode;
     fromPort: Port;
@@ -485,21 +897,19 @@ export declare class StockSharpPalette extends EventEmitter<PaletteEvents> {
 // FILE: diagram/stocksharp-diagram.d.ts
 import type { DiagramDocument } from '../core/model.js';
 import type { DiagramGlobalErrorKind, DiagramInteractionPermissions, DiagramPortRuntimeState, DiagramRuntimeState, DiagramSelection, DiagramViewState } from '../core/state.js';
-import { Diagram as CanvasDiagram, type LinkValidationResult } from '../ssgraph.js';
 import { EventEmitter } from './event-emitter.js';
-import type { DiagramEvents, ContextCommand, DiagramLoadOptions, DiagramGridSettings, DiagramOptions, DiagramScreenshotOptions, DiagramThemeOptions, LinkValidator, NodeErrorKind, NodeErrorOptions } from './api.js';
+import type { DiagramEvents, ContextCommand, DiagramLoadOptions, DiagramGridSettings, DiagramNodeBounds, DiagramPoint, DiagramOptions, DiagramScreenshotOptions, DiagramThemeOptions, LinkValidationResult, LinkValidator, NodeErrorKind, NodeErrorOptions } from './api.js';
 import { DiagramNode, Link, Port, type PortDirection, type PortUpdate } from './types.js';
 export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     constructor(options: DiagramOptions);
-    /** Direct renderer controller. It replaces the old go-compatible escape hatch. */
-    get renderer(): CanvasDiagram;
-    /** @deprecated Use renderer. The returned value is the canvas renderer, not a go.Diagram. */
-    get goDiagram(): CanvasDiagram;
     setLinkValidator(validator: LinkValidator | null): void;
     addDiagramNode(node: DiagramNode): string;
     dropNodeFromPalette(typeId: string, clientX: number, clientY: number): string | null;
     removeDiagramNode(nodeId: string): void;
     moveNode(nodeId: string, x: number, y: number): void;
+    getNodeBounds(nodeId: string): DiagramNodeBounds | null;
+    getPortPosition(nodeId: string, direction: PortDirection, portId: string): DiagramPoint | null;
+    worldToView(x: number, y: number): DiagramPoint;
     setGridSnap(enabled: boolean, size?: number): void;
     getGridSnap(): DiagramGridSettings;
     nudgeSelection(dx: number, dy: number): boolean;
@@ -588,6 +998,7 @@ export declare class StockSharpDiagram extends EventEmitter<DiagramEvents> {
     cutSelection(): void;
     copySelection(): void;
     pasteSelection(): void;
+    deleteSelection(): void;
     copySelectionToClipboard(): Promise<boolean>;
     pasteSelectionFromClipboard(): Promise<boolean>;
     getContextCommands(): Array<{
@@ -990,7 +1401,7 @@ export { DIAGRAM_VIEW_STATE_VERSION, DiagramViewStateError, createDiagramViewSta
 export type { DiagramViewStateDocument } from './core/view-state.js';
 export type { DiagramErrorState, DiagramGlobalErrorKind, DiagramInteractionPermissions, DiagramNodeErrorKind, DiagramNodePortRuntimeState, DiagramNodeRuntimeState, DiagramPortDirection, DiagramPortRuntimeState, DiagramRuntimeState, DiagramSelectedPort, DiagramSelection, DiagramViewState, } from './core/state.js';
 export { StockSharpDiagram, } from './diagram/stocksharp-diagram.js';
-export type { ContextCommand, ContextCommandPayload, ContextCommandState, ContextMenuRequestedPayload, DiagramEvents, DiagramClipboard, DiagramGridSettings, DiagramLoadOptions, DiagramOptions, DiagramScreenshotOptions, DiagramScreenshotScope, DiagramThemeOptions, DocumentLoadFailedPayload, LinkChangePayload, LinkHoverPayload, LinkRelinkedPayload, LinkSelectedPayload, LinkValidationPayload, LinkValidationReason, LinkValidationResult, LinkValidator, LinkValidatorArgs, LoadFinishedPayload, NodeChangePayload, NodeErrorKind, NodeErrorOptions, NodeHoverPayload, NodeMovedPayload, NodeSelectedPayload, PortHoverPayload, PortClickAction, PortClickedPayload, PortSelectedPayload, } from './diagram/api.js';
+export type { ContextCommand, ContextCommandPayload, ContextCommandState, ContextMenuRequestedPayload, DiagramEvents, DiagramClipboard, DiagramGridSettings, DiagramLoadOptions, DiagramNodeBounds, DiagramOptions, DiagramPoint, DiagramScreenshotOptions, DiagramScreenshotScope, DiagramThemeOptions, DocumentLoadFailedPayload, LinkChangePayload, LinkHoverPayload, LinkRelinkedPayload, LinkSelectedPayload, LinkValidationPayload, LinkValidationReason, LinkValidationResult, LinkValidator, LinkValidatorArgs, LoadFinishedPayload, NodeChangePayload, NodeErrorKind, NodeErrorOptions, NodeHoverPayload, NodeMovedPayload, NodeSelectedPayload, PortHoverPayload, PortClickAction, PortClickedPayload, PortSelectedPayload, } from './diagram/api.js';
 export { StockSharpCatalog } from './diagram/catalog.js';
 export type { CatalogEvents } from './diagram/catalog.js';
 export { PALETTE_DRAG_MIME, StockSharpPalette, } from './diagram/palette.js';
@@ -999,669 +1410,3 @@ export { DiagramNode, Link, Node, Port, PortType, } from './diagram/types.js';
 export type { DiagramNodeInit, LinkEndpoint, LinkInit, NodeData, NodeInit, PaletteGroupData, PaletteNodeData, ParamSchema, PortData, PortDirection, PortInit, PortUpdate, PortTypeInit, } from './diagram/types.js';
 export { destroyRenderedDiagram, renderAll, renderFromInline, renderFromSource, renderScheme, } from './embed.js';
 export type { DiagramEmbedHandle, DiagramEmbedScheme, DiagramEmbedSchemeLink, DiagramEmbedSchemeNode, } from './embed.js';
-export { Diagram as CanvasDiagram, LinkModel, NodeModel, PortModel, version, } from './ssgraph.js';
-export type { DiagramNodeInit as CanvasDiagramNodeInit, DiagramOptions as CanvasDiagramOptions, DiagramScreenshotOptions as CanvasDiagramScreenshotOptions, DiagramScreenshotScope as CanvasDiagramScreenshotScope, LinkInit as CanvasLinkInit, LinkValidator as CanvasLinkValidator, LinkValidatorArgs as CanvasLinkValidatorArgs, NodeErrorKind as CanvasNodeErrorKind, NodeErrorOptions as CanvasNodeErrorOptions, PortDirection as CanvasPortDirection, PortInit as CanvasPortInit, PortUpdate as CanvasPortUpdate, } from './ssgraph.js';
-
-// FILE: ssdiagram.d.ts
-import { Diagram as SsDiagram, LinkModel } from './ssgraph.js';
-declare class Point {
-    x: number;
-    y: number;
-    constructor(x?: number, y?: number);
-    static parse(s: string): Point;
-    static stringify(p: Point): string;
-}
-declare class Size {
-    width: number;
-    height: number;
-    constructor(w?: number, h?: number);
-}
-declare class Margin {
-    top: number;
-    right: number;
-    bottom: number;
-    left: number;
-    constructor(t?: number, r?: number, b?: number, l?: number);
-}
-declare class Spot {
-    x: number;
-    y: number;
-    offsetX: number;
-    offsetY: number;
-    constructor(x?: number, y?: number, ox?: number, oy?: number);
-    static Center: Spot;
-    static Left: Spot;
-    static Right: Spot;
-    static Top: Spot;
-    static Bottom: Spot;
-}
-declare class Binding {
-    target: string;
-    source: string;
-    converter: ((value: unknown, target?: unknown) => unknown) | undefined;
-    twoWaySerializer: ((v: unknown) => unknown) | undefined;
-    constructor(target: string, source?: string, converter?: (value: unknown, target?: unknown) => unknown);
-    makeTwoWay(serializer?: (v: unknown) => unknown): Binding;
-}
-declare class GraphObject {
-    part: Part | null;
-    panel: Panel | null;
-    data: unknown;
-    background: string | null;
-    [key: string]: unknown;
-}
-declare class Panel extends GraphObject {
-}
-declare class Placeholder extends GraphObject {
-}
-declare class TextBlock extends GraphObject {
-    static WrapFit: unknown;
-}
-declare class Picture extends GraphObject {
-}
-declare class Shape extends GraphObject {
-    figure: string;
-    fill: string | null;
-    stroke: string | null;
-    strokeWidth: number;
-}
-declare class Group extends GraphObject {
-}
-declare class GridLayout {
-    static Position: unknown;
-}
-declare class Part extends GraphObject {
-    location: Point;
-    isSelected: boolean;
-    findObject(_name: string): GraphObject | null;
-}
-declare class Node extends Part {
-}
-declare class Link extends Part {
-    static AvoidsNodes: unknown;
-    static JumpOver: unknown;
-}
-declare class Adornment extends Part {
-}
-declare class ChangedEvent {
-    change: unknown;
-    modelChange: string;
-    oldValue: unknown;
-    newValue: unknown;
-    isTransactionFinished: boolean;
-    static Insert: unknown;
-    static Remove: unknown;
-    constructor(change: unknown, modelChange: string, oldValue: unknown, newValue: unknown, isTransactionFinished: boolean);
-}
-declare class LiveNode extends Node {
-    readonly key: string;
-    readonly _bridge: ModelBridge;
-    constructor(bridge: ModelBridge, data: unknown, key: string);
-}
-declare class LiveLink extends Link {
-    readonly _bridge: ModelBridge;
-    constructor(bridge: ModelBridge, data: unknown);
-}
-declare function gMake(type: unknown, ...args: unknown[]): unknown;
-type NodeDataAny = Record<string, unknown> & {
-    id: string;
-    loc?: string;
-    inPorts?: PortDataAny[];
-    outPorts?: PortDataAny[];
-    color?: string;
-    border?: string;
-};
-type LinkDataAny = Record<string, unknown> & {
-    from: string;
-    fromPort: string;
-    to: string;
-    toPort: string;
-};
-type PortDataAny = Record<string, unknown> & {
-    id: string;
-    name?: string;
-    type?: string;
-    maxLinks?: number;
-    direction?: string;
-};
-declare class GraphLinksModel {
-    nodeKeyProperty: string;
-    nodeGroupKeyProperty: string;
-    linkFromPortIdProperty: string;
-    linkToPortIdProperty: string;
-    nodeDataArray: NodeDataAny[];
-    linkDataArray: LinkDataAny[];
-    _bridge: ModelBridge | null;
-    addNodeData(data: NodeDataAny): void;
-    removeNodeData(data: NodeDataAny): void;
-    addLinkData(data: LinkDataAny): void;
-    removeLinkData(data: LinkDataAny): void;
-    setDataProperty(data: Record<string, unknown>, name: string, value: unknown): void;
-    insertArrayItem(arr: unknown[], index: number, value: unknown): void;
-    removeArrayItem(arr: unknown[], index: number): void;
-}
-declare class ModelBridge {
-    readonly diagram: Diagram;
-    readonly ss: SsDiagram;
-    model: GraphLinksModel;
-    constructor(diagram: Diagram, ss: SsDiagram, model: GraphLinksModel);
-    attachModel(model: GraphLinksModel, sync?: boolean): void;
-    fireChange(change: unknown, modelChange: string, oldValue: unknown, newValue: unknown, isTransactionFinished: boolean): void;
-    addModelChangedListener(cb: (evt: ChangedEvent) => void): void;
-    addDiagramListener(name: string, cb: (evt: {
-        subject: {
-            each: (cb: (part: unknown) => void) => void;
-        };
-    }) => void): void;
-    getOrCreateLiveNode(key: string, data: NodeDataAny): LiveNode;
-    getOrCreateLiveLink(model: LinkModel): LiveLink;
-    onNodeInserted(data: NodeDataAny, fromSs: boolean): void;
-    onNodeRemoved(data: NodeDataAny, fromSs: boolean): void;
-    onLinkInserted(data: LinkDataAny, fromSs: boolean): void;
-    onLinkRemoved(data: LinkDataAny, fromSs: boolean): void;
-    onDataPropertyChanged(data: Record<string, unknown>, name: string, _value: unknown): void;
-    onPortArrayMutated(arr: unknown[]): void;
-}
-declare class CommandHandler {
-    constructor(bridge: ModelBridge);
-    canUndo(): boolean;
-    canRedo(): boolean;
-    canCutSelection(): boolean;
-    canCopySelection(): boolean;
-    canPasteSelection(): boolean;
-    canDeleteSelection(): boolean;
-    undo(): void;
-    redo(): void;
-    cutSelection(): void;
-    copySelection(): void;
-    pasteSelection(_point?: Point): void;
-    deleteSelection(): void;
-    zoomToFit(): void;
-}
-interface LinkingTool {
-    portGravity: number;
-    isUnconnectedLinkValid: boolean;
-    linkValidation: ((fromNode: Node, fromPort: GraphObject, toNode: Node, toPort: GraphObject) => boolean) | null;
-}
-declare class ToolManager {
-    linkingTool: LinkingTool;
-    relinkingTool: LinkingTool;
-    hoverDelay: number;
-    contextMenuTool: {
-        showContextMenu: (cm: unknown, obj: unknown) => void;
-    };
-}
-declare class Diagram {
-    readonly div: HTMLElement;
-    readonly ss: SsDiagram;
-    readonly _bridge: ModelBridge;
-    get model(): GraphLinksModel;
-    set model(value: GraphLinksModel);
-    commandHandler: CommandHandler;
-    toolManager: ToolManager;
-    scale: number;
-    get isReadOnly(): boolean;
-    set isReadOnly(value: boolean);
-    allowDrop: boolean;
-    allowCopy: boolean;
-    allowDelete: boolean;
-    allowLink: boolean;
-    allowMove: boolean;
-    _nodeTemplate: unknown;
-    _linkTemplate: unknown;
-    contextMenu: unknown;
-    lastInput: {
-        documentPoint: Point;
-    };
-    selection: {
-        each: (cb: (part: Part) => void) => void;
-        count: number;
-    };
-    nodes: {
-        each: (cb: (node: Node) => void) => void;
-    };
-    links: {
-        each: (cb: (link: Link) => void) => void;
-    };
-    undoManager: {
-        isInTransaction: boolean;
-    };
-    constructor(host: HTMLElement, _opts: Record<string, unknown>);
-    set nodeTemplate(t: unknown);
-    get nodeTemplate(): unknown;
-    set linkTemplate(t: unknown);
-    get linkTemplate(): unknown;
-    startTransaction(_name?: string): void;
-    commitTransaction(_name?: string): void;
-    rollbackTransaction(): void;
-    findNodeForKey(key: unknown): Node | null;
-    addDiagramListener(name: string, cb: (evt: {
-        subject: {
-            each: (cb: (part: unknown) => void) => void;
-        };
-    }) => void): void;
-    addModelChangedListener(cb: (evt: ChangedEvent) => void): void;
-    updateAllTargetBindings(): void;
-    remove(part: Part): void;
-    transformViewToDoc(p: Point): Point;
-    select(part: Part): void;
-    clearSelection(): void;
-}
-declare class Palette extends Diagram {
-}
-declare class Overview {
-    observed: Diagram | null;
-    box: {
-        findObject(name: string): Shape | null;
-    };
-    constructor(_host: HTMLElement, opts: Record<string, unknown>);
-}
-declare const go: {
-    Point: typeof Point;
-    Size: typeof Size;
-    Margin: typeof Margin;
-    Spot: typeof Spot;
-    Binding: typeof Binding;
-    GraphObject: typeof GraphObject & {
-        make: typeof gMake;
-    };
-    Panel: typeof Panel;
-    Placeholder: typeof Placeholder;
-    TextBlock: typeof TextBlock;
-    Picture: typeof Picture;
-    Shape: typeof Shape;
-    Group: typeof Group;
-    GridLayout: typeof GridLayout;
-    Part: typeof Part;
-    Node: typeof Node;
-    Link: typeof Link;
-    Adornment: typeof Adornment;
-    ChangedEvent: typeof ChangedEvent;
-    GraphLinksModel: typeof GraphLinksModel;
-    Diagram: typeof Diagram;
-    Palette: typeof Palette;
-    Overview: typeof Overview;
-};
-export default go;
-
-// FILE: ssgraph.d.ts
-import type { DiagramDocument, DiagramParameterSchema, JsonObject } from './core/model.js';
-import type { DiagramGlobalErrorKind, DiagramInteractionPermissions, DiagramPortRuntimeState, DiagramRuntimeState, DiagramSelection, DiagramViewState } from './core/state.js';
-export type PortDirection = 'in' | 'out';
-export type PortClickAction = 'leftClick' | 'rightClick';
-export interface PortInit {
-    id: string;
-    name: string;
-    description?: string;
-    type?: string;
-    maxLinks?: number;
-    availableTypes?: string[];
-    isDynamic?: boolean;
-    dynamicMode?: string;
-    isSibling?: boolean;
-    metadata?: JsonObject;
-}
-/** Mutable port properties. Port identity and direction remain stable. */
-export type PortUpdate = Partial<Omit<PortInit, 'id'>>;
-export interface DiagramNodeInit {
-    id?: string;
-    typeId?: string;
-    name: string;
-    description?: string;
-    groupName?: string;
-    color?: string;
-    border?: string;
-    icon?: string;
-    x?: number;
-    y?: number;
-    inPorts?: PortInit[];
-    outPorts?: PortInit[];
-    /** Non-empty host action enables node double-click tracking. */
-    openAction?: string;
-    /** Transient error discovered while loading a scheme. */
-    loadError?: string;
-    /** Persistent host text. Runtime/load errors are stored separately. */
-    message?: string;
-    parameters?: DiagramParameterSchema[];
-    paramValues?: Record<string, string>;
-    metadata?: JsonObject;
-    /** Transient missing-catalog marker; excluded from saveDocument(). */
-    isPlaceholder?: boolean;
-}
-export interface LinkInit {
-    id?: string;
-    from: string;
-    fromPort: string;
-    to: string;
-    toPort: string;
-    metadata?: JsonObject;
-}
-export type DiagramNodeSnapshot = DiagramNodeInit & Required<Pick<DiagramNodeInit, 'id' | 'typeId' | 'name' | 'color' | 'border' | 'x' | 'y'>> & {
-    inPorts: PortInit[];
-    outPorts: PortInit[];
-};
-export interface DiagramSnapshot {
-    nodes: DiagramNodeSnapshot[];
-    links: Array<Required<Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>>>;
-}
-export interface DiagramOptions {
-    host: HTMLElement;
-    background?: string;
-    gridColor?: string;
-    /** Snap dragged nodes to a world-space grid. Defaults to false for the low-level renderer. */
-    gridSnap?: boolean;
-    /** Positive world-space grid step. Defaults to 28. */
-    gridSize?: number;
-    /** Optional explicit socket-type → colour map; unknown types hash to a hue. */
-    typeColors?: Record<string, string>;
-    /** Ceiling (0..1) for link/socket colour lightness. Unset = full palette (tuned for a dark
-     *  canvas). A light theme sets a low ceiling so the otherwise-light link colours darken enough
-     *  to stay visible on a light canvas. */
-    linkMaxLightness?: number;
-    /** Optional minimap colours. When omitted they are derived from the
-     *  current canvas background, so a normal light/dark theme switch also
-     *  rethemes the overview. */
-    overviewBackground?: string;
-    overviewBorderColor?: string;
-    overviewViewportColor?: string;
-    overviewViewportFill?: string;
-}
-export type DiagramScreenshotScope = 'viewport' | 'content';
-export interface DiagramScreenshotOptions {
-    /** Current viewport (Charts/WPF parity) or the complete graph bounds. Defaults to viewport. */
-    scope?: DiagramScreenshotScope;
-    /** World-to-CSS-pixel scale for content export. Defaults to 1. */
-    scale?: number;
-    /** CSS-pixel padding around content export. Defaults to 32. */
-    padding?: number;
-    /** Output pixel density. Defaults to the renderer's current device pixel ratio. */
-    pixelRatio?: number;
-    /** Optional export-only background override. */
-    background?: string;
-    /** Defaults to true. */
-    includeGrid?: boolean;
-    /** Defaults to the current value for viewport and false for content. */
-    includeOverview?: boolean;
-    /** Defaults to true for viewport and false for content. */
-    includeSelection?: boolean;
-    /** Include debugger and error state. Defaults to true. */
-    includeRuntimeState?: boolean;
-}
-export interface LinkValidatorArgs {
-    fromNode: NodeModel;
-    fromPort: PortModel;
-    toNode: NodeModel;
-    toPort: PortModel;
-}
-export type LinkValidator = (args: LinkValidatorArgs) => boolean;
-export type LinkValidationReason = 'allowed' | 'missing-link' | 'missing-node' | 'missing-port' | 'same-node' | 'invalid-direction' | 'incompatible-type' | 'duplicate-link' | 'source-limit' | 'target-limit' | 'host-rejected';
-export interface LinkValidationResult {
-    allowed: boolean;
-    reason: LinkValidationReason;
-}
-export type NodeErrorKind = 'runtime' | 'load';
-export interface NodeErrorOptions {
-    /** Runtime errors flash the border; load errors use a red background. */
-    kind?: NodeErrorKind;
-    /** Disable the initial runtime-error border flash. Defaults to true. */
-    animate?: boolean;
-}
-export interface DiagramEvents {
-    nodeAdded: {
-        node: NodeModel;
-    };
-    nodeRemoved: {
-        node: NodeModel;
-    };
-    nodeMoved: {
-        node: NodeModel;
-    };
-    nodeChanged: {
-        node: NodeModel;
-    };
-    nodeSelected: {
-        node: NodeModel | null;
-        selected: boolean;
-    };
-    nodeHover: {
-        node: NodeModel;
-        hovering: boolean;
-    };
-    linkAdded: {
-        link: LinkModel;
-    };
-    linkRemoved: {
-        link: LinkModel;
-    };
-    linkRelinked: {
-        link: LinkModel;
-        previous: LinkInit & {
-            id: string;
-        };
-    };
-    linkSelected: {
-        link: LinkModel | null;
-        selected: boolean;
-    };
-    linkHover: {
-        link: LinkModel;
-        hovering: boolean;
-    };
-    linkValidation: {
-        fromNode: NodeModel;
-        from: PortModel;
-        toNode: NodeModel;
-        to: PortModel;
-        allowed: boolean;
-        reason: LinkValidationReason;
-    };
-    portSelected: {
-        node: NodeModel;
-        port: PortModel;
-    };
-    portClicked: {
-        node: NodeModel;
-        port: PortModel;
-        action: PortClickAction;
-        ctrlKey: boolean;
-        shiftKey: boolean;
-        altKey: boolean;
-        metaKey: boolean;
-    };
-    portHover: {
-        node: NodeModel;
-        port: PortModel;
-        hovering: boolean;
-    };
-    nodeOpen: {
-        node: NodeModel;
-    };
-    loadFinished: {
-        nodes: NodeModel[];
-        links: LinkModel[];
-    };
-    zoomChanged: {
-        scale: number;
-    };
-    viewChanged: DiagramViewState;
-    contextMenu: {
-        x: number;
-        y: number;
-        link: LinkModel | null;
-        node: NodeModel | null;
-        port: {
-            node: NodeModel;
-            port: PortModel;
-        } | null;
-    };
-    undoStackChanged: {
-        canUndo: boolean;
-        canRedo: boolean;
-    };
-    selectionChanged: DiagramSelection;
-    runtimeStateChanged: {
-        state: DiagramRuntimeState;
-    };
-}
-type EvName = keyof DiagramEvents;
-export declare class PortModel {
-    id: string;
-    name: string;
-    description: string;
-    type: string;
-    direction: PortDirection;
-    maxLinks: number;
-    availableTypes: string[];
-    isDynamic: boolean;
-    dynamicMode: string;
-    isSibling: boolean;
-    metadata: JsonObject;
-    cx: number;
-    cy: number;
-    constructor(init: PortInit, dir: PortDirection);
-    toInit(): PortInit;
-}
-export declare class NodeModel {
-    id: string;
-    typeId: string;
-    name: string;
-    description: string;
-    groupName: string;
-    color: string;
-    border: string;
-    icon: string;
-    openAction: string;
-    message: string;
-    parameters: DiagramParameterSchema[];
-    paramValues: Record<string, string>;
-    metadata: JsonObject;
-    isPlaceholder: boolean;
-    loadError: string;
-    runtimeError: string;
-    errorFlashStart: number | null;
-    x: number;
-    y: number;
-    inPorts: PortModel[];
-    outPorts: PortModel[];
-    w: number;
-    h: number;
-    constructor(init: DiagramNodeInit, id: string);
-    port(id: string): PortModel | undefined;
-    toInit(includeRuntimeState?: boolean): DiagramNodeInit & {
-        id: string;
-    };
-}
-export declare class LinkModel {
-    from: string;
-    fromPort: string;
-    to: string;
-    toPort: string;
-    readonly id: string;
-    readonly metadata: JsonObject;
-    constructor(from: string, fromPort: string, to: string, toPort: string, id?: string, metadata?: JsonObject);
-    key(): string;
-    toInit(): LinkInit & {
-        id: string;
-    };
-}
-export declare class Diagram {
-    constructor(opts: DiagramOptions);
-    on<K extends EvName>(ev: K, h: (p: DiagramEvents[K]) => void): () => void;
-    setLinkValidator(fn: LinkValidator | null): void;
-    setGridSnap(enabled: boolean, size?: number): void;
-    getGridSnap(): {
-        enabled: boolean;
-        size: number;
-    };
-    addDiagramNode(init: DiagramNodeInit): string;
-    removeDiagramNode(id: string): void;
-    moveNode(id: string, x: number, y: number): void;
-    nudgeSelection(dx: number, dy: number): boolean;
-    addLink(init: LinkInit): boolean;
-    removeLink(link: {
-        id?: string;
-        from: string;
-        fromPort: string;
-        to: string;
-        toPort: string;
-    }): void;
-    canUndo(): boolean;
-    canRedo(): boolean;
-    undo(): void;
-    redo(): void;
-    cutSelection(): void;
-    withTransaction<T>(label: string, fn: () => T): T;
-    deleteSelection(): void;
-    clear(): void;
-    relink(linkId: string, next: Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>): LinkValidationResult;
-    addPort(nodeId: string, direction: PortDirection, init: PortInit): boolean;
-    removePort(nodeId: string, direction: PortDirection, portId: string): boolean;
-    updatePortType(nodeId: string, direction: PortDirection, portId: string, type: string): boolean;
-    updatePort(nodeId: string, direction: PortDirection, portId: string, patch: PortUpdate): boolean;
-    setNodePorts(nodeId: string, inPorts: readonly PortInit[], outPorts: readonly PortInit[]): boolean;
-    updateNode(nodeId: string, patch: Partial<Pick<DiagramNodeInit, 'name' | 'description' | 'color' | 'border' | 'message' | 'openAction'>>): boolean;
-    setNodeParamValue(nodeId: string, name: string, value: string | undefined): boolean;
-    setShowNodeMessages(show: boolean): void;
-    load(nodes: DiagramNodeInit[], links: LinkInit[]): void;
-    save(): DiagramSnapshot;
-    loadDocument(source: DiagramDocument | string): void;
-    saveDocument(): DiagramDocument;
-    selectedNodeId(): string | null;
-    getSelection(): DiagramSelection;
-    selectNodesById(ids: readonly string[]): void;
-    selectLinkById(id: string | null): void;
-    selectPortById(nodeId: string, direction: PortDirection, portId: string): void;
-    getViewState(): DiagramViewState;
-    setViewState(state: DiagramViewState): void;
-    findNode(id: string): NodeModel | undefined;
-    requestRedraw(): void;
-    /**
-     * Creates a detached canvas. With no options it is an exact copy of the
-     * current frame, matching Charts.takeScreenshot(). Content scope renders
-     * the whole graph without changing the visible viewport.
-     */
-    takeScreenshot(options?: DiagramScreenshotOptions): HTMLCanvasElement;
-    getRuntimeState(): DiagramRuntimeState;
-    setRuntimeState(state: DiagramRuntimeState): void;
-    clearRuntimeState(): void;
-    setActiveNode(nodeId: string | null): boolean;
-    setPortRuntimeState(nodeId: string, direction: PortDirection, portId: string, patch: Partial<DiagramPortRuntimeState>): boolean;
-    setGlobalError(message: string | null, kind?: DiagramGlobalErrorKind): void;
-    setNodeError(id: string, message: string, options?: NodeErrorOptions): boolean;
-    clearNodeError(id: string, kind?: NodeErrorKind): boolean;
-    viewToWorld(sx: number, sy: number): [number, number];
-    selectNodeById(id: string | null): void;
-    setZoom(scale: number): void;
-    zoomToFit(): void;
-    playIntro(): void;
-    setOverviewVisible(v: boolean): void;
-    setTypeColors(colors: Readonly<Record<string, string>>): void;
-    setTheme(t: {
-        background?: string;
-        gridColor?: string;
-        linkMaxLightness?: number;
-        overviewBackground?: string;
-        overviewBorderColor?: string;
-        overviewViewportColor?: string;
-        overviewViewportFill?: string;
-    }): void;
-    resize(w: number, h: number): void;
-    getInteractionPermissions(): DiagramInteractionPermissions;
-    setInteractionPermissions(patch: Partial<DiagramInteractionPermissions>): void;
-    /** View-only mode keeps selection, inspection and copy enabled. */
-    setReadOnly(value: boolean): void;
-    destroy(): void;
-    validateLink(init: Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>, excludeLinkId?: string): LinkValidationResult;
-    copySelection(): void;
-    copySelectionDocument(): DiagramDocument | null;
-    hasClipboard(): boolean;
-    getClipboardDocument(): DiagramDocument | null;
-    setClipboardDocument(source: DiagramDocument | string): void;
-    pasteSelection(): string[];
-    pasteDocument(source: DiagramDocument | string, offset?: {
-        x: number;
-        y: number;
-    }): string[];
-}
-export declare const version = "0.1.0";
-export {};

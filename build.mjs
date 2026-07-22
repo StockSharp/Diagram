@@ -24,23 +24,10 @@ await execFileAsync(
 
 const targets = [
     {
-        entryPoints: [join(here, 'src', 'ssgraph.ts')],
-        outfile: join(dist, 'ssgraph.js'),
-        globalName: 'SSGraph',
-    },
-    {
         // Complete public stack: StockSharpDiagram + catalog/types/palette/embed.
-        // The go-compatible runtime is intentionally a separate legacy bundle.
         entryPoints: [join(here, 'src', 'index.ts')],
         outfile: join(dist, 'ssdiagram.js'),
         globalName: 'SSDiagram',
-    },
-    {
-        // Compatibility-only bundle for hosts that still load window.go before
-        // a separately compiled legacy wrapper.
-        entryPoints: [join(here, 'src', 'ssdiagram.ts')],
-        outfile: join(dist, 'ssdiagram-legacy.js'),
-        globalName: 'SSDiagramLegacy',
     },
     {
         entryPoints: [join(here, 'examples', 'basic.ts')],

@@ -2,7 +2,7 @@
 
 The complete StockSharp web strategy-diagram component: the typed
 `StockSharpDiagram` API, catalog and palette, the canvas renderer, the
-read-only web embed, and an optional legacy compatibility entry point.
+read-only web embed, and the versioned diagram document model.
 
 ![StockSharp JS Strategy Diagram — visual strategy editor with typed connections and element palette](sample.png)
 
@@ -21,16 +21,11 @@ The component has one document model and a separate rendering layer:
 | Public component API | `src/diagram/stocksharp-diagram.ts` | `StockSharpDiagram`: catalog-aware nodes, ports, validation, events, persistence, history and theming |
 | Models and palette | `src/diagram/{types,catalog,palette}.ts` | Public data model and draggable HTML element palette |
 | Web embed | `src/embed.ts` | Self-contained read-only rendering for web applications |
-| Compatibility runtime | `src/ssdiagram.ts` | Implements the legacy diagram namespace on top of the canvas renderer |
-| Canvas renderer | `src/ssgraph.ts` | Drawing, routing, selection, editing, zoom, touch and overview |
+| Canvas renderer | `src/canvas-renderer.ts` | Internal drawing, routing, selection, editing, zoom, touch and overview |
 
-`StockSharpDiagram` talks directly to `ssgraph`; the public path does not load
-or install `window.go`. The compatibility runtime is isolated behind the
-`ssdiagram/legacy` entry point.
-
-The layers ship together so applications can use the high-level component,
-the read-only embed, or the low-level renderer without maintaining copied
-source files.
+Applications use `StockSharpDiagram` or the read-only embed. The renderer is
+an implementation detail and is bundled into both entry points, so consumers
+do not need a second runtime or copied source files.
 
 ## Repository layout
 
@@ -51,8 +46,7 @@ src/
     palette.ts             draggable HTML palette
     event-emitter.ts
   embed.ts                 self-contained read-only web renderer
-  ssdiagram.ts             compatibility runtime
-  ssgraph.ts               canvas renderer
+  canvas-renderer.ts       internal canvas renderer
 examples/basic.ts          full-stack demo source
 demo/                      Charts-style GitHub Pages shell
 tests/                     core, renderer and public-API integration tests
@@ -271,9 +265,7 @@ Dedicated entry points are available for consumers with narrower needs:
 - `ssdiagram/state` - runtime/view/selection state helpers;
 - `ssdiagram/history` - command and transaction history;
 - `ssdiagram/actions` - typed action registry;
-- `ssdiagram/ssgraph` — low-level canvas renderer;
 - `ssdiagram/embed` — compiled read-only web renderer;
-- `ssdiagram/legacy` — compatibility runtime only;
 - `ssdiagram/catalog`, `ssdiagram/palette`, `ssdiagram/types`.
 
 ## Build output
@@ -285,8 +277,6 @@ Dedicated entry points are available for consumers with narrower needs:
 | `dist/esm/**` | complete ESM module tree |
 | `dist/types/**` | TypeScript declarations |
 | `dist/ssdiagram.js` | complete browser IIFE exposed as `window.SSDiagram` |
-| `dist/ssdiagram-legacy.js` | compatibility-only IIFE that installs `window.go` |
-| `dist/ssgraph.js` | low-level renderer IIFE exposed as `window.SSGraph` |
 | `demo/dist/demo.js` | full-stack interactive example (excluded from the package) |
 
 ## Commands

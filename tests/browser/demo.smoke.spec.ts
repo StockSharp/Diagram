@@ -68,35 +68,31 @@ test('node properties change live input and output connection policies', async (
     const canvas = page.locator('#diagram canvas');
 
     const nodePoint = async (nodeId: string): Promise<[number, number]> => page.evaluate((id) => {
-        const renderer = (window as unknown as {
+        const diagram = (window as unknown as {
             stockSharpDiagramDemo: {
-                renderer: {
-                    findNode(nodeId: string): { x: number; y: number; w: number; h: number } | undefined;
-                    toScreen(x: number, y: number): [number, number];
-                };
+                getNodeBounds(nodeId: string): { x: number; y: number; width: number; height: number } | null;
+                worldToView(x: number, y: number): { x: number; y: number };
             };
-        }).stockSharpDiagramDemo.renderer;
-        const node = renderer.findNode(id)!;
-        return renderer.toScreen(node.x + node.w / 2, node.y + node.h / 2);
+        }).stockSharpDiagramDemo;
+        const node = diagram.getNodeBounds(id)!;
+        const point = diagram.worldToView(node.x + node.width / 2, node.y + node.height / 2);
+        return [point.x, point.y];
     }, nodeId);
     const dragPort = async (fromNode: string, fromPort: string, toNode: string, toPort: string): Promise<void> => {
         const points = await page.evaluate((args) => {
-            const renderer = (window as unknown as {
+            const diagram = (window as unknown as {
                 stockSharpDiagramDemo: {
-                    renderer: {
-                        findNode(nodeId: string): {
-                            inPorts: Array<{ id: string; cx: number; cy: number }>;
-                            outPorts: Array<{ id: string; cx: number; cy: number }>;
-                        } | undefined;
-                        toScreen(x: number, y: number): [number, number];
-                    };
+                    getPortPosition(nodeId: string, direction: 'in' | 'out', portId: string): { x: number; y: number } | null;
+                    worldToView(x: number, y: number): { x: number; y: number };
                 };
-            }).stockSharpDiagramDemo.renderer;
-            const source = renderer.findNode(args.fromNode)!.outPorts.find((port) => port.id === args.fromPort)!;
-            const target = renderer.findNode(args.toNode)!.inPorts.find((port) => port.id === args.toPort)!;
+            }).stockSharpDiagramDemo;
+            const source = diagram.getPortPosition(args.fromNode, 'out', args.fromPort)!;
+            const target = diagram.getPortPosition(args.toNode, 'in', args.toPort)!;
+            const sourceView = diagram.worldToView(source.x, source.y);
+            const targetView = diagram.worldToView(target.x, target.y);
             return {
-                source: renderer.toScreen(source.cx, source.cy),
-                target: renderer.toScreen(target.cx, target.cy),
+                source: [sourceView.x, sourceView.y] as [number, number],
+                target: [targetView.x, targetView.y] as [number, number],
             };
         }, { fromNode, fromPort, toNode, toPort });
         const box = await canvas.boundingBox();

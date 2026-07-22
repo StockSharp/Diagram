@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { Diagram, version, type DiagramNodeInit } from '../src/ssgraph';
+import { Diagram, version, type DiagramNodeInit } from '../src/canvas-renderer';
 import { createDiagramDocument } from '../src/core/document';
 
 class FakeCanvas {
@@ -1183,33 +1183,8 @@ test('load errors use a red background and expose tooltip text', () => {
     assert.equal(node.loadError, '');
 });
 
-test('public package entry does not install the legacy window.go runtime', async () => {
+test('complete StockSharpDiagram API loads through the public entry point', async () => {
     installDom();
-    await import('../src/index');
-    assert.equal((globalThis.window as unknown as { go?: unknown }).go, undefined);
-});
-
-test('legacy adapter publishes window.go and exposes a working selection count', async () => {
-    installDom();
-    const { default: go } = await import('../src/ssdiagram');
-    assert.equal((globalThis.window as unknown as { go: unknown }).go, go);
-
-    const host = new FakeHost();
-    const legacy = new go.Diagram(host as unknown as HTMLElement, {});
-    legacy.model.addNodeData({
-        id: 'legacy',
-        name: 'Legacy node',
-        inPorts: [],
-        outPorts: [],
-    });
-    const node = legacy.findNodeForKey('legacy');
-    assert.notEqual(node, null);
-    legacy.select(node!);
-    assert.equal(legacy.selection.count, 1);
-});
-
-test('complete StockSharpDiagram API loads through the direct canvas facade', async () => {
-    const fakeWindow = installDom();
     const {
         DiagramNode,
         Node,
@@ -1250,23 +1225,7 @@ test('complete StockSharpDiagram API loads through the direct canvas facade', as
     }));
     diagram.undo();
     assert.equal(diagram.save().nodes[0].outPorts[0].type, 'Decimal');
-    const canvas = diagram.renderer;
-    assert.equal(canvas.save().nodes.length, 1);
-    let clicked: { nodeId: string; portId: string; direction: string; action: string } | null = null;
-    diagram.on('portClicked', ({ node, port, direction, action }) => {
-        clicked = { nodeId: node.id, portId: port.id, direction, action };
-    });
-    const port = canvas.findNode('high-level')!.outPorts[0];
-    const [portX, portY] = (canvas as unknown as { toScreen(x: number, y: number): [number, number] })
-        .toScreen(port.cx, port.cy);
-    host.canvas!.dispatch('pointerdown', {
-        clientX: portX, clientY: portY, pointerId: 1, pointerType: 'mouse', button: 0,
-        ctrlKey: false, shiftKey: false, altKey: false, metaKey: false,
-    });
-    fakeWindow.dispatch('pointerup', { clientX: portX, clientY: portY, shiftKey: false });
-    assert.deepEqual(clicked, {
-        nodeId: 'high-level', portId: 'value', direction: 'out', action: 'leftClick',
-    });
+    assert.equal(diagram.save().nodes.length, 1);
 });
 
 test('built-in fullscreen button can be hidden by options and changed at runtime', async () => {
@@ -1314,10 +1273,9 @@ test('high-level move and zoom methods update the real canvas state', async () =
     diagram.moveNode('node', 150, -25);
     diagram.setZoom(1.75);
 
-    assert.equal(diagram.renderer.findNode('node')?.x, 150);
-    assert.equal(diagram.renderer.findNode('node')?.y, -25);
     assert.equal(diagram.getViewState().zoom, 1.75);
     assert.equal(diagram.save().nodes[0].x, 150);
+    assert.equal(diagram.save().nodes[0].y, -25);
     const image = diagram.takeScreenshot({ scope: 'content', pixelRatio: 1 });
     assert.ok(image.width > 0 && image.height > 0);
 });
@@ -1391,11 +1349,11 @@ test('high-level persistent edits use canvas history without capturing runtime e
 
     diagram.undo();
     assert.deepEqual(diagram.save().nodes[0].paramValues, {});
-    assert.equal(diagram.renderer.findNode('node')?.runtimeError, 'Runtime failure');
+    assert.equal(diagram.getRuntimeState().nodes.node.error?.message, 'Runtime failure');
 
     diagram.redo();
     assert.deepEqual(diagram.save().nodes[0].paramValues, { Period: '20' });
-    assert.equal(diagram.renderer.findNode('node')?.runtimeError, 'Runtime failure');
+    assert.equal(diagram.getRuntimeState().nodes.node.error?.message, 'Runtime failure');
 });
 
 test('high-level transaction groups property edits and rolls them back on failure', async () => {
@@ -1609,9 +1567,6 @@ test('failed document load keeps the current scheme and exposes a global load er
     assert.deepEqual(diagram.saveDocument(), before);
     assert.equal(diagram.getRuntimeState().globalError?.kind, 'load');
     assert.equal(failures.length, 1);
-    (diagram.renderer as unknown as { draw(): void }).draw();
-    assert.ok(host.canvas!.drawnText.some((text) => /JSON/i.test(text)));
-
     diagram.loadDocument(valid);
     assert.equal(diagram.getRuntimeState().globalError, null);
 });
@@ -1642,16 +1597,10 @@ test('high-level host receives opt-in nodeOpen', async () => {
         y: 50,
     })], []);
 
-    const ss = diagram.renderer as unknown as {
-        findNode(id: string): { id: string; x: number; y: number; w: number; h: number } | undefined;
-        toScreen(x: number, y: number): [number, number];
-    };
-    const node = ss.findNode('indicator-1')!;
-
     const opened: string[] = [];
     diagram.on('nodeOpen', ({ nodes }) => opened.push(nodes[0].openAction));
-    const [hitX, hitY] = ss.toScreen(node.x + node.w / 2, node.y + node.h / 2);
-    host.canvas!.dispatch('dblclick', { clientX: hitX, clientY: hitY });
+    diagram.selectNodes(['indicator-1']);
+    assert.equal(diagram.executeContextCommand('open'), true);
     assert.deepEqual(opened, ['indicatorSettings']);
 });
 
@@ -1676,11 +1625,8 @@ test('high-level host can apply and clear runtime node errors', async () => {
         outPorts: [{ id: 'orders', name: 'Orders', type: 'Order' }],
     })], []);
 
-    const canvas = diagram.renderer as unknown as {
-        findNode(id: string): { runtimeError: string } | undefined;
-    };
     assert.equal(diagram.setNodeError('failed', 'Calculation failed.'), true);
-    assert.equal(canvas.findNode('failed')?.runtimeError, 'Calculation failed.');
+    assert.equal(diagram.getRuntimeState().nodes.failed.error?.message, 'Calculation failed.');
     let runtimeEvents = 0;
     diagram.on('runtimeStateChanged', () => { runtimeEvents += 1; });
     assert.equal(diagram.setActiveNode('failed'), true);
@@ -1692,7 +1638,7 @@ test('high-level host can apply and clear runtime node errors', async () => {
     assert.equal(diagram.getRuntimeState().globalError?.kind, 'locked');
     assert.ok(runtimeEvents >= 3);
     assert.equal(diagram.clearNodeError('failed'), true);
-    assert.equal(canvas.findNode('failed')?.runtimeError, '');
+    assert.equal(diagram.getRuntimeState().nodes.failed.error, null);
     diagram.clearRuntimeState();
     assert.deepEqual(diagram.getRuntimeState(), { activeNodeId: null, nodes: {}, globalError: null });
 });
@@ -1719,10 +1665,10 @@ test('high-level load errors remain transient', async () => {
         nodeErrors: { damaged: 'Period could not be restored.' },
     });
 
-    const canvas = diagram.renderer as unknown as {
-        findNode(id: string): { loadError: string } | undefined;
-    };
-    assert.equal(canvas.findNode('damaged')?.loadError, 'Period could not be restored.');
+    assert.equal(
+        diagram.getRuntimeState().nodes.damaged.error?.message,
+        'Period could not be restored.',
+    );
     assert.equal(diagram.save().nodes[0].message, '');
 });
 
