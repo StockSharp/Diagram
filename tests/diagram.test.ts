@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { Diagram, version, type DiagramNodeInit } from '../src/ssgraph';
+import { createDiagramDocument } from '../src/core/document';
 
 class FakeCanvas {
     style: Record<string, string> = {};
@@ -132,6 +133,78 @@ test('load/save preserves the public graph model', () => {
         { from: 'source', fromPort: 'out', to: 'sink', toPort: 'in' },
     ]);
     assert.equal(saved.nodes[0].outPorts[0].type, 'number');
+});
+
+test('canvas preserves the complete versioned document without runtime errors', () => {
+    const { diagram } = makeDiagram();
+    const document = createDiagramDocument({
+        metadata: { strategy: 'designer' },
+        nodes: [{
+            id: 'source',
+            name: 'Source',
+            description: 'Full source description',
+            icon: 'source.svg',
+            message: 'Persistent note',
+            outPorts: [{
+                id: 'out',
+                name: 'Value',
+                description: 'Output value',
+                type: 'number',
+                maxLinks: 2,
+                availableTypes: ['number', 'decimal'],
+                isDynamic: true,
+                dynamicMode: 'onConnect',
+                metadata: { hostPortId: 7 },
+            }],
+            paramValues: { Value: '10' },
+            metadata: { hostNodeId: 42 },
+        }, {
+            id: 'sink',
+            name: 'Sink',
+            inPorts: [{ id: 'in', name: 'Value', type: 'number' }],
+        }],
+        links: [{
+            id: 'value-link',
+            from: { nodeId: 'source', portId: 'out' },
+            to: { nodeId: 'sink', portId: 'in' },
+            metadata: { hostLinkId: 9 },
+        }],
+    });
+
+    diagram.loadDocument(document);
+    diagram.setNodeError('source', 'Transient failure', { kind: 'load' });
+
+    assert.deepEqual(diagram.saveDocument(), document);
+    assert.equal(diagram.save().nodes[0].loadError, undefined);
+});
+
+test('canvas clipboard preserves complete node data', () => {
+    const { diagram } = makeDiagram();
+    diagram.load([{
+        ...source,
+        description: 'Full description',
+        metadata: { hostNodeId: 42 },
+        outPorts: [{
+            id: 'out',
+            name: 'Value',
+            description: 'Full port description',
+            type: 'number',
+            availableTypes: ['number', 'decimal'],
+            metadata: { hostPortId: 7 },
+        }],
+        paramValues: { Period: '20' },
+    }], []);
+    diagram.selectNodeById('source');
+    diagram.copySelection();
+    diagram.pasteSelection();
+
+    const pasted = diagram.saveDocument().nodes.find((node) => node.id !== 'source');
+    assert.notEqual(pasted, undefined);
+    assert.equal(pasted!.description, 'Full description');
+    assert.deepEqual(pasted!.metadata, { hostNodeId: 42 });
+    assert.deepEqual(pasted!.outPorts[0].availableTypes, ['number', 'decimal']);
+    assert.deepEqual(pasted!.outPorts[0].metadata, { hostPortId: 7 });
+    assert.deepEqual(pasted!.paramValues, { Period: '20' });
 });
 
 test('link validation rejects incompatible port types', () => {
@@ -266,6 +339,12 @@ test('load errors use a red background and expose tooltip text', () => {
     assert.equal(node.loadError, '');
 });
 
+test('public package entry does not install the legacy window.go runtime', async () => {
+    installDom();
+    await import('../src/index');
+    assert.equal((globalThis.window as unknown as { go?: unknown }).go, undefined);
+});
+
 test('legacy adapter publishes window.go and exposes a working selection count', async () => {
     installDom();
     const { default: go } = await import('../src/ssdiagram');
@@ -285,7 +364,7 @@ test('legacy adapter publishes window.go and exposes a working selection count',
     assert.equal(legacy.selection.count, 1);
 });
 
-test('complete StockSharpDiagram API loads through the repaired model bridge', async () => {
+test('complete StockSharpDiagram API loads through the direct canvas facade', async () => {
     installDom();
     const {
         DiagramNode,
@@ -318,8 +397,86 @@ test('complete StockSharpDiagram API loads through the repaired model bridge', a
     ], []);
 
     assert.equal(diagram.save().nodes[0].name, 'High-level source');
-    const canvas = diagram.goDiagram.ss as unknown as { save(): { nodes: unknown[] } };
+    const canvas = diagram.renderer;
     assert.equal(canvas.save().nodes.length, 1);
+});
+
+test('high-level move and zoom methods update the real canvas state', async () => {
+    installDom();
+    const {
+        DiagramNode,
+        StockSharpCatalog,
+        StockSharpDiagram,
+    } = await import('../src/index');
+    const host = new FakeHost();
+    const diagram = new StockSharpDiagram({
+        div: host as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+    });
+    diagram.load([new DiagramNode({ id: 'node', name: 'Node', x: 10, y: 20 })], []);
+
+    diagram.moveNode('node', 150, -25);
+    diagram.setZoom(1.75);
+
+    assert.equal(diagram.renderer.findNode('node')?.x, 150);
+    assert.equal(diagram.renderer.findNode('node')?.y, -25);
+    assert.equal(diagram.getViewState().zoom, 1.75);
+    assert.equal(diagram.save().nodes[0].x, 150);
+});
+
+test('high-level persistent edits use canvas history without capturing runtime errors', async () => {
+    installDom();
+    const {
+        DiagramNode,
+        StockSharpCatalog,
+        StockSharpDiagram,
+    } = await import('../src/index');
+    const host = new FakeHost();
+    const diagram = new StockSharpDiagram({
+        div: host as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+    });
+    diagram.load([new DiagramNode({ id: 'node', name: 'Node' })], []);
+    diagram.setNodeError('node', 'Runtime failure');
+
+    diagram.setNodeParamValue('node', 'Period', '20');
+    assert.equal(diagram.canUndo(), true);
+    assert.deepEqual(diagram.save().nodes[0].paramValues, { Period: '20' });
+
+    diagram.undo();
+    assert.deepEqual(diagram.save().nodes[0].paramValues, {});
+    assert.equal(diagram.renderer.findNode('node')?.runtimeError, 'Runtime failure');
+
+    diagram.redo();
+    assert.deepEqual(diagram.save().nodes[0].paramValues, { Period: '20' });
+    assert.equal(diagram.renderer.findNode('node')?.runtimeError, 'Runtime failure');
+});
+
+test('high-level versioned document API preserves host metadata', async () => {
+    installDom();
+    const {
+        StockSharpCatalog,
+        StockSharpDiagram,
+        createDiagramDocument,
+    } = await import('../src/index');
+    const host = new FakeHost();
+    const diagram = new StockSharpDiagram({
+        div: host as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+    });
+    const document = createDiagramDocument({
+        metadata: { owner: 'Designer' },
+        nodes: [{
+            id: 'node',
+            name: 'Node',
+            outPorts: [{ id: 'out', name: 'Out', metadata: { socket: 1 } }],
+            metadata: { element: 2 },
+        }],
+    });
+
+    diagram.loadDocument(document);
+
+    assert.deepEqual(diagram.saveDocument(), document);
 });
 
 test('high-level host receives opt-in nodeOpen', async () => {
@@ -348,7 +505,7 @@ test('high-level host receives opt-in nodeOpen', async () => {
         y: 50,
     })], []);
 
-    const ss = diagram.goDiagram.ss as unknown as {
+    const ss = diagram.renderer as unknown as {
         findNode(id: string): { id: string; x: number; y: number; w: number; h: number } | undefined;
         toScreen(x: number, y: number): [number, number];
     };
@@ -381,7 +538,7 @@ test('high-level host can apply and clear runtime node errors', async () => {
         y: 50,
     })], []);
 
-    const canvas = diagram.goDiagram.ss as unknown as {
+    const canvas = diagram.renderer as unknown as {
         findNode(id: string): { runtimeError: string } | undefined;
     };
     assert.equal(diagram.setNodeError('failed', 'Calculation failed.'), true);
@@ -412,9 +569,88 @@ test('high-level load errors remain transient', async () => {
         nodeErrors: { damaged: 'Period could not be restored.' },
     });
 
-    const canvas = diagram.goDiagram.ss as unknown as {
+    const canvas = diagram.renderer as unknown as {
         findNode(id: string): { loadError: string } | undefined;
     };
     assert.equal(canvas.findNode('damaged')?.loadError, 'Period could not be restored.');
     assert.equal(diagram.save().nodes[0].message, '');
+});
+
+test('high-level load/save preserves the complete Designer node contract', async () => {
+    installDom();
+    const {
+        DiagramNode,
+        Link,
+        StockSharpCatalog,
+        StockSharpDiagram,
+    } = await import('../src/index');
+
+    const host = new FakeHost();
+    const diagram = new StockSharpDiagram({
+        div: host as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+    });
+    const node = new DiagramNode({
+        id: 'indicator-1',
+        typeId: 'indicator',
+        name: 'SMA (20)',
+        description: 'Simple moving average',
+        groupName: 'Indicators',
+        icon: 'data:image/svg+xml;base64,PHN2Zy8+',
+        openAction: 'indicatorSettings',
+        color: '#102030',
+        border: '#405060',
+        x: 125.5,
+        y: -42.25,
+        inPorts: [{
+            id: 'source',
+            name: 'Source',
+            description: 'Input values',
+            type: 'Decimal',
+            maxLinks: 1,
+            availableTypes: ['Decimal', 'Double'],
+            isDynamic: true,
+            dynamicMode: 'onConnect',
+            isSibling: true,
+        }],
+        outPorts: [{
+            id: 'result',
+            name: 'Result',
+            description: 'Calculated value',
+            type: 'Decimal',
+            maxLinks: 2,
+        }],
+        parameters: [{
+            name: 'Period',
+            displayName: 'Period',
+            description: 'Number of values',
+            type: 'number',
+            defaultValue: '20',
+            options: ['10', '20', '50'],
+            min: 1,
+            max: 1000,
+            displayOrder: 10,
+            category: 'General',
+            isBasic: true,
+            editorType: 'Int32Editor',
+        }],
+        paramValues: { Period: '34' },
+    });
+
+    diagram.load([node], [new Link({
+        outNode: 'indicator-1',
+        outPort: 'result',
+        inNode: 'indicator-1',
+        inPort: 'source',
+    })]);
+
+    const saved = diagram.save();
+    assert.equal(saved.nodes.length, 1);
+    assert.deepEqual(saved.nodes[0], node);
+    assert.deepEqual(saved.links[0], new Link({
+        outNode: 'indicator-1',
+        outPort: 'result',
+        inNode: 'indicator-1',
+        inPort: 'source',
+    }));
 });

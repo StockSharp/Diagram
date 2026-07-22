@@ -1,18 +1,16 @@
 // ssdiagram.ts — Layer-B (`window.go` namespace) compatibility shim on
 // top of the in-house ssgraph engine.
 //
-// This exists for integrations written against an older declarative diagram surface
+// This optional entry exists for integrations written against an older declarative diagram surface
 // (`go.GraphObject.make`, `go.Diagram`, `go.Binding`, `go.Point`,
 // `go.Spot`, `go.Panel`, `go.GraphLinksModel`, `go.Adornment`,
-// `go.Overview`, …). Rewriting the call sites to the Layer-A
-// `StockSharpDiagram` surface is a separate, larger task. This shim
-// lets them run on ssgraph without rewriting every call site at once.
+// `go.Overview`, …).
 //
 // Approach: ssgraph is procedural — its `Diagram` class renders nodes/
 // links/ports from its own model. The legacy declarative templates
-// assembled by diagram.ts (`nodeTemplate`, `linkTemplate`, port
-// templates, adornments) are NOT honoured here — they become inert
-// tree descriptors that diagram.ts can set and forget. The bridge
+// supplied by legacy consumers (`nodeTemplate`, `linkTemplate`, port
+// templates, adornments) are not renderer templates; they remain inert
+// descriptors available to compatibility consumers. The bridge
 // that matters is:
 //
 //   * `new go.Diagram(div, opts)` constructs an ssgraph.Diagram and
@@ -876,9 +874,6 @@ const go = {
 
 // Publish on window so separately built compatibility wrappers that reference
 // the ambient `go` global can find the runtime.
-// TODO: `window.go` is kept as the compat-shape name diagram.ts already
-// reaches for — not a deliberate branding choice. Rename once diagram.ts
-// is rewritten against the Layer-A `StockSharpDiagram` surface.
 if (typeof window !== 'undefined')
 	(window as unknown as { go: unknown }).go = go;
 

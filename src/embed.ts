@@ -5,10 +5,9 @@
 // renderFromSource and renderFromInline discover .ss-diagram-host elements and
 // load a schema from a URL or embedded JSON. Every failure degrades to a short
 // inline note instead of throwing.
-// StockSharpDiagram imports the compatibility runtime explicitly, so a bundle
-// containing this module is self-contained and does not require a preceding
-// window.go script.
-import { StockSharpDiagram } from './diagram/diagram.js';
+// StockSharpDiagram uses the canvas renderer directly, so this module is
+// self-contained and does not install the optional window.go legacy runtime.
+import { StockSharpDiagram } from './diagram/stocksharp-diagram.js';
 import { StockSharpCatalog } from './diagram/catalog.js';
 import { DiagramNode, Link, Node, Port, PortType } from './diagram/types.js';
 

@@ -1,0 +1,132 @@
+import type { DiagramDocument } from '../core/model.js';
+import type { DiagramSelection, DiagramViewState } from '../core/state.js';
+import type { DiagramNode, Link, Port, PortDirection } from './types.js';
+
+export interface DiagramOptions {
+    div: HTMLElement;
+    catalog: import('./catalog.js').StockSharpCatalog;
+    overviewDiv?: HTMLElement | null;
+    overviewContainer?: HTMLElement | null;
+    zoomLabel?: HTMLElement | null;
+}
+
+export interface DiagramThemeOptions {
+    diagramBackground?: string;
+    overviewBackground?: string;
+    gridColor?: string;
+    linkMaxLightness?: number;
+    overviewBorderColor?: string;
+    overviewViewportColor?: string;
+    overviewViewportFill?: string;
+}
+
+export type NodeErrorKind = 'runtime' | 'load';
+
+export interface NodeErrorOptions {
+    kind?: NodeErrorKind;
+    animate?: boolean;
+}
+
+export interface DiagramLoadOptions {
+    /** Transient per-node errors discovered while restoring a scheme. */
+    nodeErrors?: Readonly<Record<string, string>>;
+}
+
+export type ContextCommand = 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'open' | 'delete' | 'properties' | 'help';
+
+export interface ContextCommandPayload {
+    command: ContextCommand;
+    nodes: DiagramNode[];
+    links: Link[];
+}
+
+export interface NodeSelectedPayload {
+    node: DiagramNode;
+    selected: boolean;
+}
+
+export interface NodeHoverPayload {
+    node: DiagramNode;
+    hovering: boolean;
+}
+
+export interface PortSelectedPayload {
+    node: DiagramNode;
+    port: Port;
+    direction: PortDirection;
+}
+
+export interface PortHoverPayload extends PortSelectedPayload {
+    hovering: boolean;
+}
+
+export interface LinkSelectedPayload {
+    link: Link;
+    selected: boolean;
+}
+
+export interface LinkHoverPayload {
+    link: Link;
+    hovering: boolean;
+}
+
+export interface NodeMovedPayload {
+    node: DiagramNode;
+}
+
+export interface NodeChangePayload {
+    nodes: DiagramNode[];
+}
+
+export interface LinkChangePayload {
+    links: Link[];
+}
+
+export interface LoadFinishedPayload {
+    nodes: DiagramNode[];
+    links: Link[];
+}
+
+export interface LinkValidationPayload {
+    fromNode: DiagramNode;
+    fromPort: Port;
+    toNode: DiagramNode;
+    toPort: Port;
+    allowed: boolean;
+}
+
+export interface LinkValidatorArgs {
+    fromNode: DiagramNode;
+    fromPort: Port;
+    toNode: DiagramNode;
+    toPort: Port;
+}
+
+export type LinkValidator = (args: LinkValidatorArgs) => boolean;
+
+export interface DiagramEvents extends Record<string, unknown> {
+    nodeAdded: NodeChangePayload;
+    nodeRemoved: NodeChangePayload;
+    linkAdded: LinkChangePayload;
+    linkRemoved: LinkChangePayload;
+    nodeMoved: NodeMovedPayload;
+    nodeSelected: NodeSelectedPayload;
+    nodeHover: NodeHoverPayload;
+    portSelected: PortSelectedPayload;
+    portHover: PortHoverPayload;
+    linkSelected: LinkSelectedPayload;
+    linkHover: LinkHoverPayload;
+    linkValidation: LinkValidationPayload;
+    loadFinished: LoadFinishedPayload;
+    contextCommand: ContextCommandPayload;
+    undoRequested: NodeChangePayload & LinkChangePayload;
+    redoRequested: NodeChangePayload & LinkChangePayload;
+    nodeEdit: NodeChangePayload;
+    nodeProperties: NodeChangePayload;
+    nodeOpen: NodeChangePayload;
+    nodeHelp: NodeChangePayload;
+    zoomChanged: DiagramViewState;
+    selectionChanged: DiagramSelection;
+    undoStackChanged: { canUndo: boolean; canRedo: boolean };
+    documentLoaded: { document: DiagramDocument };
+}

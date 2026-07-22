@@ -25,8 +25,8 @@ const targets = [
         globalName: 'SSGraph',
     },
     {
-        // Complete public stack: StockSharpDiagram + catalog/types/palette/embed
-        // and the compatibility runtime it uses underneath.
+        // Complete public stack: StockSharpDiagram + catalog/types/palette/embed.
+        // The go-compatible runtime is intentionally a separate legacy bundle.
         entryPoints: [join(here, 'src', 'index.ts')],
         outfile: join(dist, 'ssdiagram.js'),
         globalName: 'SSDiagram',

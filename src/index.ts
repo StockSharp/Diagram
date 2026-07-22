@@ -1,11 +1,55 @@
-// Install the compatibility runtime before any StockSharpDiagram instance is
-// constructed. It remains available as window.go for existing integrations,
-// while the exports below are the canonical API for new consumers.
-import './ssdiagram.js';
+export {
+    DiagramDocumentError,
+    cloneDiagramDocument,
+    createDiagramDocument,
+    parseDiagramDocument,
+    serializeDiagramDocument,
+} from './core/document.js';
+
+export { DIAGRAM_DOCUMENT_VERSION } from './core/model.js';
+
+export type {
+    DiagramDocument,
+    DiagramDocumentEndpoint,
+    DiagramDocumentInput,
+    DiagramDocumentLink,
+    DiagramDocumentLinkInput,
+    DiagramDocumentNode,
+    DiagramDocumentNodeInput,
+    DiagramDocumentPort,
+    DiagramDocumentPortInput,
+    DiagramDocumentVersion,
+    DiagramParameterSchema,
+    JsonObject,
+    JsonPrimitive,
+    JsonValue,
+} from './core/model.js';
+
+export {
+    createDiagramNodeRuntimeState,
+    createDiagramPortRuntimeState,
+    createDiagramRuntimeState,
+    createDiagramSelection,
+    createDiagramViewState,
+} from './core/state.js';
+
+export type {
+    DiagramErrorState,
+    DiagramGlobalErrorKind,
+    DiagramNodeErrorKind,
+    DiagramNodePortRuntimeState,
+    DiagramNodeRuntimeState,
+    DiagramPortDirection,
+    DiagramPortRuntimeState,
+    DiagramRuntimeState,
+    DiagramSelectedPort,
+    DiagramSelection,
+    DiagramViewState,
+} from './core/state.js';
 
 export {
     StockSharpDiagram,
-} from './diagram/diagram.js';
+} from './diagram/stocksharp-diagram.js';
 
 export type {
     ContextCommand,
@@ -29,7 +73,7 @@ export type {
     NodeSelectedPayload,
     PortHoverPayload,
     PortSelectedPayload,
-} from './diagram/diagram.js';
+} from './diagram/api.js';
 
 export { StockSharpCatalog } from './diagram/catalog.js';
 export type { CatalogEvents } from './diagram/catalog.js';

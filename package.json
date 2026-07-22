@@ -18,8 +18,8 @@
       "import": "./dist/esm/ssgraph.js"
     },
     "./diagram": {
-      "types": "./dist/types/diagram/diagram.d.ts",
-      "import": "./dist/esm/diagram/diagram.js"
+      "types": "./dist/types/diagram/stocksharp-diagram.d.ts",
+      "import": "./dist/esm/diagram/stocksharp-diagram.js"
     },
     "./catalog": {
       "types": "./dist/types/diagram/catalog.d.ts",
@@ -33,6 +33,14 @@
       "types": "./dist/types/diagram/types.d.ts",
       "import": "./dist/esm/diagram/types.js"
     },
+    "./document": {
+      "types": "./dist/types/core/document.d.ts",
+      "import": "./dist/esm/core/document.js"
+    },
+    "./state": {
+      "types": "./dist/types/core/state.d.ts",
+      "import": "./dist/esm/core/state.js"
+    },
     "./embed": {
       "types": "./dist/types/embed.d.ts",
       "import": "./dist/esm/embed.js"
@@ -43,10 +51,12 @@
     },
     "./source": "./src/index.ts",
     "./source/ssgraph": "./src/ssgraph.ts",
-    "./source/diagram": "./src/diagram/diagram.ts",
+    "./source/diagram": "./src/diagram/stocksharp-diagram.ts",
     "./source/catalog": "./src/diagram/catalog.ts",
     "./source/palette": "./src/diagram/palette.ts",
     "./source/types": "./src/diagram/types.ts",
+    "./source/document": "./src/core/document.ts",
+    "./source/state": "./src/core/state.ts",
     "./source/embed": "./src/embed.ts",
     "./source/legacy": "./src/ssdiagram.ts"
   },

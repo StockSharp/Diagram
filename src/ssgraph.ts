@@ -9,19 +9,39 @@
 // in/out ports, bezier links, node drag, drag-to-link with validation,
 // selection, delete, zoom/pan, load/save round-trip.
 
+import { createDiagramDocument, parseDiagramDocument } from './core/document.js';
+import type {
+    DiagramDocument,
+    DiagramParameterSchema,
+    JsonObject,
+    JsonValue,
+} from './core/model.js';
+import type {
+    DiagramSelection,
+    DiagramViewState,
+} from './core/state.js';
+
 export type PortDirection = 'in' | 'out';
 
 export interface PortInit {
     id: string;
     name: string;
+    description?: string;
     type?: string;
     maxLinks?: number;
+    availableTypes?: string[];
+    isDynamic?: boolean;
+    dynamicMode?: string;
+    isSibling?: boolean;
+    metadata?: JsonObject;
 }
 
 export interface DiagramNodeInit {
     id?: string;
     typeId?: string;
     name: string;
+    description?: string;
+    groupName?: string;
     color?: string;
     border?: string;
     icon?: string;
@@ -33,13 +53,31 @@ export interface DiagramNodeInit {
     openAction?: string;
     /** Transient error discovered while loading a scheme. */
     loadError?: string;
+    /** Persistent host text. Runtime/load errors are stored separately. */
+    message?: string;
+    parameters?: DiagramParameterSchema[];
+    paramValues?: Record<string, string>;
+    metadata?: JsonObject;
+    /** Transient missing-catalog marker; excluded from saveDocument(). */
+    isPlaceholder?: boolean;
 }
 
 export interface LinkInit {
+    id?: string;
     from: string;
     fromPort: string;
     to: string;
     toPort: string;
+    metadata?: JsonObject;
+}
+
+export type DiagramNodeSnapshot = DiagramNodeInit
+    & Required<Pick<DiagramNodeInit, 'id' | 'typeId' | 'name' | 'color' | 'border' | 'x' | 'y'>>
+    & { inPorts: PortInit[]; outPorts: PortInit[] };
+
+export interface DiagramSnapshot {
+    nodes: DiagramNodeSnapshot[];
+    links: Array<Required<Pick<LinkInit, 'from' | 'fromPort' | 'to' | 'toPort'>>>;
 }
 
 export interface DiagramOptions {
@@ -78,16 +116,19 @@ export interface NodeErrorOptions {
     animate?: boolean;
 }
 
-interface DiagramEvents {
+export interface DiagramEvents {
     nodeAdded: { node: NodeModel };
     nodeRemoved: { node: NodeModel };
     nodeMoved: { node: NodeModel };
+    nodeChanged: { node: NodeModel };
     nodeSelected: { node: NodeModel | null; selected: boolean };
+    nodeHover: { node: NodeModel; hovering: boolean };
     linkAdded: { link: LinkModel };
     linkRemoved: { link: LinkModel };
     linkSelected: { link: LinkModel | null; selected: boolean };
     linkHover: { link: LinkModel; hovering: boolean };
-    linkValidation: { from: PortModel; to: PortModel; allowed: boolean };
+    linkValidation: { fromNode: NodeModel; from: PortModel; toNode: NodeModel; to: PortModel; allowed: boolean };
+    portSelected: { node: NodeModel; port: PortModel };
     portHover: { node: NodeModel; port: PortModel; hovering: boolean };
     nodeOpen: { node: NodeModel };
     loadFinished: { nodes: NodeModel[]; links: LinkModel[] };
@@ -107,21 +148,65 @@ interface UndoAction { do: () => void; undo: () => void; label: string }
 type EvName = keyof DiagramEvents;
 
 // ---- model ----------------------------------------------------------
+function copyJsonValue(value: JsonValue): JsonValue {
+    if (Array.isArray(value)) return value.map(copyJsonValue);
+    if (value !== null && typeof value === 'object') return copyJsonObject(value);
+    return value;
+}
+
+function copyJsonObject(value: JsonObject | undefined): JsonObject {
+    if (value === undefined) return {};
+    const result: JsonObject = {};
+    for (const [key, item] of Object.entries(value)) result[key] = copyJsonValue(item);
+    return result;
+}
+
+function copyParameters(value: readonly DiagramParameterSchema[] | undefined): DiagramParameterSchema[] {
+    return (value ?? []).map((parameter) => ({ ...parameter, options: [...parameter.options] }));
+}
+
 export class PortModel {
     id: string;
     name: string;
+    description: string;
     type: string;
     direction: PortDirection;
     maxLinks: number;
+    availableTypes: string[];
+    isDynamic: boolean;
+    dynamicMode: string;
+    isSibling: boolean;
+    metadata: JsonObject;
     // layout cache (world coords), filled at draw time
     cx = 0;
     cy = 0;
     constructor(init: PortInit, dir: PortDirection) {
         this.id = init.id;
         this.name = init.name;
+        this.description = init.description ?? '';
         this.type = init.type ?? '';
         this.direction = dir;
         this.maxLinks = typeof init.maxLinks === 'number' ? init.maxLinks : 0;
+        this.availableTypes = [...(init.availableTypes ?? [])];
+        this.isDynamic = init.isDynamic ?? false;
+        this.dynamicMode = init.dynamicMode ?? '';
+        this.isSibling = init.isSibling ?? false;
+        this.metadata = copyJsonObject(init.metadata);
+    }
+
+    toInit(): PortInit {
+        return {
+            id: this.id,
+            name: this.name,
+            description: this.description,
+            type: this.type,
+            maxLinks: this.maxLinks,
+            availableTypes: [...this.availableTypes],
+            isDynamic: this.isDynamic,
+            dynamicMode: this.dynamicMode,
+            isSibling: this.isSibling,
+            metadata: copyJsonObject(this.metadata),
+        };
     }
 }
 
@@ -129,10 +214,17 @@ export class NodeModel {
     id: string;
     typeId: string;
     name: string;
+    description: string;
+    groupName: string;
     color: string;
     border: string;
     icon: string;
     openAction: string;
+    message: string;
+    parameters: DiagramParameterSchema[];
+    paramValues: Record<string, string>;
+    metadata: JsonObject;
+    isPlaceholder: boolean;
     loadError: string;
     runtimeError = '';
     errorFlashStart: number | null = null;
@@ -147,10 +239,17 @@ export class NodeModel {
         this.id = id;
         this.typeId = init.typeId ?? id;
         this.name = init.name;
+        this.description = init.description ?? '';
+        this.groupName = init.groupName ?? 'Common';
         this.color = init.color ?? '#d7d7d7';
         this.border = init.border ?? '#8c8c8c';
         this.icon = init.icon ?? '';
         this.openAction = init.openAction ?? '';
+        this.message = init.message ?? '';
+        this.parameters = copyParameters(init.parameters);
+        this.paramValues = { ...(init.paramValues ?? {}) };
+        this.metadata = copyJsonObject(init.metadata);
+        this.isPlaceholder = init.isPlaceholder ?? false;
         this.loadError = init.loadError ?? '';
         this.x = typeof init.x === 'number' ? init.x : 0;
         this.y = typeof init.y === 'number' ? init.y : 0;
@@ -160,16 +259,60 @@ export class NodeModel {
     port(id: string): PortModel | undefined {
         return this.inPorts.find((p) => p.id === id) ?? this.outPorts.find((p) => p.id === id);
     }
+
+    toInit(includeRuntimeState: boolean = true): DiagramNodeInit & { id: string } {
+        const init: DiagramNodeInit & { id: string } = {
+            id: this.id,
+            typeId: this.typeId,
+            name: this.name,
+            description: this.description,
+            groupName: this.groupName,
+            color: this.color,
+            border: this.border,
+            icon: this.icon,
+            openAction: this.openAction,
+            message: this.message,
+            parameters: copyParameters(this.parameters),
+            paramValues: { ...this.paramValues },
+            metadata: copyJsonObject(this.metadata),
+            isPlaceholder: this.isPlaceholder,
+            x: this.x,
+            y: this.y,
+            inPorts: this.inPorts.map((port) => port.toInit()),
+            outPorts: this.outPorts.map((port) => port.toInit()),
+        };
+        if (includeRuntimeState && this.loadError.length > 0) init.loadError = this.loadError;
+        return init;
+    }
 }
 
 export class LinkModel {
+    readonly id: string;
+    readonly metadata: JsonObject;
+
     constructor(
         public from: string,
         public fromPort: string,
         public to: string,
         public toPort: string,
-    ) {}
+        id: string = '',
+        metadata?: JsonObject,
+    ) {
+        this.id = id;
+        this.metadata = copyJsonObject(metadata);
+    }
     key(): string { return `${this.from}|${this.fromPort}|${this.to}|${this.toPort}`; }
+
+    toInit(): LinkInit & { id: string } {
+        return {
+            id: this.id,
+            from: this.from,
+            fromPort: this.fromPort,
+            to: this.to,
+            toPort: this.toPort,
+            metadata: copyJsonObject(this.metadata),
+        };
+    }
 }
 
 const HEADER_H = 22;
@@ -233,6 +376,8 @@ export class Diagram {
     private nodes: NodeModel[] = [];
     private links: LinkModel[] = [];
     private idSeq = 1;
+    private linkSeq = 1;
+    private documentMetadata: JsonObject = {};
 
     // viewport transform: screen = world * scale + offset
     private scale = 1;
@@ -257,9 +402,10 @@ export class Diagram {
     private panX = 0;
     private panY = 0;
     private readOnly = false;                                 // view-only: pan/zoom navigation, no editing
+    private showNodeMessages = true;
     private iconCache = new Map<string, HTMLImageElement | null>();   // node icon images by URL (null = loading/failed)
     private rubber: { x0: number; y0: number; x: number; y: number } | null = null;   // world rect
-    private clip: { nodes: ReturnType<Diagram['save']>['nodes']; links: LinkInit[] } | null = null;
+    private clip: DiagramDocument | null = null;
     private linking: { node: NodeModel; port: PortModel } | null = null;
     private linkSnap: { node: NodeModel; port: PortModel } | null = null;
     private cursor = { x: 0, y: 0 };           // screen
@@ -335,8 +481,24 @@ export class Diagram {
     // ---- public API (Layer-A-shaped) --------------------------------
     setLinkValidator(fn: LinkValidator | null): void { this.validator = fn; }
 
+    private nextNodeId(): string {
+        let id: string;
+        do id = `n${this.idSeq++}`;
+        while (this.nodes.some((node) => node.id === id));
+        return id;
+    }
+
+    private nextLinkId(): string {
+        let id: string;
+        do id = `link_${this.linkSeq++}`;
+        while (this.links.some((link) => link.id === id));
+        return id;
+    }
+
     addDiagramNode(init: DiagramNodeInit): string {
-        const id = init.id ?? `n${this.idSeq++}`;
+        const id = init.id ?? this.nextNodeId();
+        if (id.trim().length === 0) throw new Error('ssgraph: node id cannot be empty');
+        if (this.nodes.some((node) => node.id === id)) throw new Error(`ssgraph: duplicate node id "${id}"`);
         const fullInit: DiagramNodeInit = { ...init, id };
         this.doAddNode(fullInit);
         this.record({
@@ -347,7 +509,9 @@ export class Diagram {
         return id;
     }
     private doAddNode(init: DiagramNodeInit): void {
-        const node = new NodeModel(init, init.id ?? `n${this.idSeq++}`);
+        const id = init.id ?? this.nextNodeId();
+        if (this.nodes.some((node) => node.id === id)) return;
+        const node = new NodeModel(init, id);
         this.layoutNode(node);
         this.nodes.push(node);
         this.emit('nodeAdded', { node });
@@ -359,16 +523,9 @@ export class Diagram {
         // Capture full state for undo BEFORE mutating — we need both
         // the node init AND every link that gets cascaded out, so undo
         // can rebuild them in one shot.
-        const snapshot: DiagramNodeInit = {
-            id, typeId: node.typeId, name: node.name,
-            color: node.color, border: node.border,
-            icon: node.icon, openAction: node.openAction, loadError: node.loadError,
-            x: node.x, y: node.y,
-            inPorts:  node.inPorts.map((p)  => ({ id: p.id, name: p.name, type: p.type, direction: p.direction })),
-            outPorts: node.outPorts.map((p) => ({ id: p.id, name: p.name, type: p.type, direction: p.direction })),
-        };
+        const snapshot = node.toInit(false);
         const cascaded = this.links.filter((l) => l.from === id || l.to === id)
-            .map((l) => ({ from: l.from, fromPort: l.fromPort, to: l.to, toPort: l.toPort }));
+            .map((link) => link.toInit());
         this.doRemoveNode(id);
         this.record({
             do:   () => { this.doRemoveNode(id); },
@@ -412,11 +569,16 @@ export class Diagram {
         this.scheduleDraw();
     }
     addLink(init: LinkInit): boolean {
-        const ok = this.doAddLink(init);
+        const fullInit: LinkInit = {
+            ...init,
+            id: init.id ?? this.nextLinkId(),
+            metadata: copyJsonObject(init.metadata),
+        };
+        const ok = this.doAddLink(fullInit);
         if (ok) {
             this.record({
-                do:   () => { this.doAddLink(init); },
-                undo: () => { this.doRemoveLink(init); },
+                do:   () => { this.doAddLink(fullInit); },
+                undo: () => { this.doRemoveLink(fullInit); },
                 label: 'add link',
             });
         }
@@ -430,19 +592,21 @@ export class Diagram {
         const tp = tn.inPorts.find((p) => p.id === init.toPort);
         if (fp === undefined || tp === undefined) return false;
         const allowed = this.canLink(fn, fp, tn, tp);
-        this.emit('linkValidation', { from: fp, to: tp, allowed });
+        this.emit('linkValidation', { fromNode: fn, from: fp, toNode: tn, to: tp, allowed });
         if (!allowed) return false;
-        const link = new LinkModel(init.from, init.fromPort, init.to, init.toPort);
+        const link = new LinkModel(init.from, init.fromPort, init.to, init.toPort, init.id ?? this.nextLinkId(), init.metadata);
         if (this.links.some((l) => l.key() === link.key())) return false;
+        if (this.links.some((l) => l.id === link.id)) return false;
         this.links.push(link);
         this.emit('linkAdded', { link });
         this.scheduleDraw();
         return true;
     }
     removeLink(link: { from: string; fromPort: string; to: string; toPort: string }): void {
-        const init: LinkInit = { from: link.from, fromPort: link.fromPort, to: link.to, toPort: link.toPort };
-        const found = this.links.find((l) => l.key() === new LinkModel(init.from, init.fromPort, init.to, init.toPort).key());
+        const key = new LinkModel(link.from, link.fromPort, link.to, link.toPort).key();
+        const found = this.links.find((candidate) => candidate.key() === key);
         if (found === undefined) return;
+        const init = found.toInit();
         this.doRemoveLink(init);
         this.record({
             do:   () => { this.doRemoveLink(init); },
@@ -525,10 +689,151 @@ export class Diagram {
     clear(): void {
         this.nodes = []; this.links = [];
         this.selectedNode = null; this.selectedNodes.clear(); this.selectedLink = null;
+        this.documentMetadata = {};
+        this.undoStack = [];
+        this.redoStack = [];
+        this.txDepth = 0;
+        this.txActions = [];
+        this.emit('undoStackChanged', { canUndo: false, canRedo: false });
+        this.scheduleDraw();
+    }
+
+    addPort(nodeId: string, direction: PortDirection, init: PortInit): boolean {
+        const node = this.findNode(nodeId);
+        if (node === undefined) return false;
+        const ports = direction === 'in' ? node.inPorts : node.outPorts;
+        if (ports.some((port) => port.id === init.id)) return false;
+        return this.updateNodeState(nodeId, 'add port', (target) => {
+            const list = direction === 'in' ? target.inPorts : target.outPorts;
+            list.push(new PortModel(init, direction));
+        });
+    }
+
+    removePort(nodeId: string, direction: PortDirection, portId: string): boolean {
+        const node = this.findNode(nodeId);
+        if (node === undefined) return false;
+        const ports = direction === 'in' ? node.inPorts : node.outPorts;
+        if (!ports.some((port) => port.id === portId)) return false;
+        let changed = false;
+        this.withTransaction('remove port', () => {
+            const affected = this.links.filter((link) => direction === 'in'
+                ? link.to === nodeId && link.toPort === portId
+                : link.from === nodeId && link.fromPort === portId);
+            for (const link of affected) this.removeLink(link);
+            changed = this.updateNodeState(nodeId, 'remove port', (target) => {
+                if (direction === 'in') target.inPorts = target.inPorts.filter((port) => port.id !== portId);
+                else target.outPorts = target.outPorts.filter((port) => port.id !== portId);
+            });
+        });
+        return changed;
+    }
+
+    updatePortType(nodeId: string, direction: PortDirection, portId: string, type: string): boolean {
+        const node = this.findNode(nodeId);
+        const port = direction === 'in'
+            ? node?.inPorts.find((candidate) => candidate.id === portId)
+            : node?.outPorts.find((candidate) => candidate.id === portId);
+        if (port === undefined || port.type === type) return false;
+        return this.updateNodeState(nodeId, 'update port type', (target) => {
+            const targetPort = direction === 'in'
+                ? target.inPorts.find((candidate) => candidate.id === portId)
+                : target.outPorts.find((candidate) => candidate.id === portId);
+            if (targetPort !== undefined) targetPort.type = type;
+        });
+    }
+
+    setNodePorts(nodeId: string, inPorts: readonly PortInit[], outPorts: readonly PortInit[]): boolean {
+        const node = this.findNode(nodeId);
+        if (node === undefined) return false;
+        const inputIds = new Set(inPorts.map((port) => port.id));
+        const outputIds = new Set(outPorts.map((port) => port.id));
+        let changed = false;
+        this.withTransaction('set node ports', () => {
+            const invalid = this.links.filter((link) =>
+                (link.to === nodeId && !inputIds.has(link.toPort))
+                || (link.from === nodeId && !outputIds.has(link.fromPort)));
+            for (const link of invalid) this.removeLink(link);
+            changed = this.updateNodeState(nodeId, 'set node ports', (target) => {
+                target.inPorts = inPorts.map((port) => new PortModel(port, 'in'));
+                target.outPorts = outPorts.map((port) => new PortModel(port, 'out'));
+            });
+        });
+        return changed;
+    }
+
+    updateNode(
+        nodeId: string,
+        patch: Partial<Pick<DiagramNodeInit, 'name' | 'description' | 'color' | 'border' | 'message' | 'openAction'>>,
+    ): boolean {
+        return this.updateNodeState(nodeId, 'update node', (node) => {
+            if (patch.name !== undefined) node.name = patch.name;
+            if (patch.description !== undefined) node.description = patch.description;
+            if (patch.color !== undefined) node.color = patch.color;
+            if (patch.border !== undefined) node.border = patch.border;
+            if (patch.message !== undefined) node.message = patch.message;
+            if (patch.openAction !== undefined) node.openAction = patch.openAction;
+        });
+    }
+
+    setNodeParamValue(nodeId: string, name: string, value: string | undefined): boolean {
+        return this.updateNodeState(nodeId, 'set node parameter', (node) => {
+            if (value === undefined) delete node.paramValues[name];
+            else node.paramValues[name] = value;
+        });
+    }
+
+    setShowNodeMessages(show: boolean): void {
+        this.showNodeMessages = show;
+        this.scheduleDraw();
+    }
+
+    private updateNodeState(nodeId: string, label: string, mutate: (node: NodeModel) => void): boolean {
+        const node = this.findNode(nodeId);
+        if (node === undefined) return false;
+        const before = node.toInit(false);
+        mutate(node);
+        const after = node.toInit(false);
+        if (JSON.stringify(before) === JSON.stringify(after)) return false;
+        this.layoutNode(node);
+        this.emit('nodeChanged', { node });
+        this.scheduleDraw();
+        this.record({
+            do: () => { this.applyNodeSnapshot(nodeId, after); },
+            undo: () => { this.applyNodeSnapshot(nodeId, before); },
+            label,
+        });
+        return true;
+    }
+
+    private applyNodeSnapshot(nodeId: string, snapshot: DiagramNodeInit): void {
+        const node = this.findNode(nodeId);
+        if (node === undefined) return;
+        const restored = new NodeModel(snapshot, nodeId);
+        node.typeId = restored.typeId;
+        node.name = restored.name;
+        node.description = restored.description;
+        node.groupName = restored.groupName;
+        node.color = restored.color;
+        node.border = restored.border;
+        node.icon = restored.icon;
+        node.openAction = restored.openAction;
+        node.message = restored.message;
+        node.parameters = restored.parameters;
+        node.paramValues = restored.paramValues;
+        node.metadata = restored.metadata;
+        node.isPlaceholder = restored.isPlaceholder;
+        node.x = restored.x;
+        node.y = restored.y;
+        node.inPorts = restored.inPorts;
+        node.outPorts = restored.outPorts;
+        this.layoutNode(node);
+        this.emit('nodeChanged', { node });
         this.scheduleDraw();
     }
     load(nodes: DiagramNodeInit[], links: LinkInit[]): void {
         this.clear();
+        this.idSeq = 1;
+        this.linkSeq = 1;
         // Initial load is "model seed" — should NOT be undoable, and
         // shouldn't leave the user with 12 entries to Ctrl+Z through
         // before their stack reaches their first real action.
@@ -536,7 +841,11 @@ export class Diagram {
         try {
             for (const n of nodes) this.addDiagramNode(n);
             for (const l of links) {
-                const lm = new LinkModel(l.from, l.fromPort, l.to, l.toPort);
+                const id = l.id ?? this.nextLinkId();
+                if (this.links.some((existing) => existing.id === id)) {
+                    throw new Error(`ssgraph: duplicate link id "${id}"`);
+                }
+                const lm = new LinkModel(l.from, l.fromPort, l.to, l.toPort, id, l.metadata);
                 if (!this.links.some((x) => x.key() === lm.key())) this.links.push(lm);
             }
         } finally { this.isApplying = false; }
@@ -546,19 +855,74 @@ export class Diagram {
         this.zoomToFit();
         this.playIntro();
     }
-    save(): { nodes: Array<Required<Pick<DiagramNodeInit, 'id' | 'typeId' | 'name' | 'color' | 'border' | 'x' | 'y'>> & { openAction?: string; inPorts: PortInit[]; outPorts: PortInit[] }>; links: LinkInit[] } {
+    save(): DiagramSnapshot {
         return {
-            nodes: this.nodes.map((n) => ({
-                id: n.id, typeId: n.typeId, name: n.name, color: n.color, border: n.border,
-                ...(n.openAction.length > 0 ? { openAction: n.openAction } : {}),
-                x: n.x, y: n.y,
-                inPorts: n.inPorts.map((p) => ({ id: p.id, name: p.name, type: p.type, maxLinks: p.maxLinks })),
-                outPorts: n.outPorts.map((p) => ({ id: p.id, name: p.name, type: p.type, maxLinks: p.maxLinks })),
-            })),
+            nodes: this.nodes.map((node) => node.toInit(false) as DiagramNodeSnapshot),
             links: this.links.map((l) => ({ from: l.from, fromPort: l.fromPort, to: l.to, toPort: l.toPort })),
         };
     }
+
+    loadDocument(source: DiagramDocument | string): void {
+        const document = parseDiagramDocument(source);
+        this.load(
+            document.nodes,
+            document.links.map((link) => ({
+                id: link.id,
+                from: link.from.nodeId,
+                fromPort: link.from.portId,
+                to: link.to.nodeId,
+                toPort: link.to.portId,
+                metadata: link.metadata,
+            })),
+        );
+        this.documentMetadata = copyJsonObject(document.metadata);
+    }
+
+    saveDocument(): DiagramDocument {
+        return createDiagramDocument({
+            nodes: this.nodes.map((node) => node.toInit(false)),
+            links: this.links.map((link) => ({
+                id: link.id,
+                from: { nodeId: link.from, portId: link.fromPort },
+                to: { nodeId: link.to, portId: link.toPort },
+                metadata: link.metadata,
+            })),
+            metadata: this.documentMetadata,
+        });
+    }
     selectedNodeId(): string | null { return this.selectedNode?.id ?? null; }
+    getSelection(): DiagramSelection {
+        return {
+            nodeIds: [...this.selectedNodes].map((node) => node.id),
+            linkIds: this.selectedLink === null ? [] : [this.selectedLink.id],
+            port: null,
+            primaryNodeId: this.selectedNode?.id ?? null,
+            primaryLinkId: this.selectedLink?.id ?? null,
+        };
+    }
+    selectNodesById(ids: readonly string[]): void {
+        const wanted = new Set(ids);
+        this.setSelection(this.nodes.filter((node) => wanted.has(node.id)));
+    }
+    selectLinkById(id: string | null): void {
+        this.selectLink(id === null ? null : (this.links.find((link) => link.id === id) ?? null));
+    }
+    getViewState(): DiagramViewState {
+        return {
+            zoom: this.scale,
+            panX: this.offX,
+            panY: this.offY,
+            overviewVisible: this.overviewVisible,
+        };
+    }
+    setViewState(state: DiagramViewState): void {
+        this.scale = clamp(state.zoom, ZOOM_MIN, ZOOM_MAX);
+        this.offX = state.panX;
+        this.offY = state.panY;
+        this.overviewVisible = state.overviewVisible;
+        this.emit('zoomChanged', { scale: this.scale });
+        this.scheduleDraw();
+    }
     // Compat helpers used by the ssdiagram shim. They expose internal
     // state the host loop already touches via private members; keeping
     // them on the public class avoids reaching into
@@ -624,6 +988,10 @@ export class Diagram {
     // Entrance animation: the whole scheme rises from below + fades in.
     playIntro(): void { this.introStart = performance.now(); this.scheduleDraw(); }
     setOverviewVisible(v: boolean): void { this.overviewVisible = v; this.scheduleDraw(); }
+    setTypeColors(colors: Readonly<Record<string, string>>): void {
+        this.opts.typeColors = { ...colors };
+        this.scheduleDraw();
+    }
     setTheme(t: {
         background?: string;
         gridColor?: string;
@@ -840,11 +1208,11 @@ export class Diagram {
     copySelection(): void {
         if (this.selectedNodes.size === 0) { this.clip = null; return; }
         const ids = new Set([...this.selectedNodes].map((n) => n.id));
-        const all = this.save();
-        this.clip = {
+        const all = this.saveDocument();
+        this.clip = createDiagramDocument({
             nodes: all.nodes.filter((n) => ids.has(n.id)),
-            links: all.links.filter((l) => ids.has(l.from) && ids.has(l.to)),
-        };
+            links: all.links.filter((link) => ids.has(link.from.nodeId) && ids.has(link.to.nodeId)),
+        });
     }
     pasteSelection(): void {
         if (this.clip === null || this.clip.nodes.length === 0) return;
@@ -853,23 +1221,27 @@ export class Diagram {
         // Paste of N nodes + M links collapses into ONE undo step.
         this.withTransaction('paste', () => {
             for (const sn of this.clip!.nodes) {
-                const nid = `n${this.idSeq++}`;
+                const nid = this.nextNodeId();
                 map.set(sn.id, nid);
                 const id = this.addDiagramNode({
-                    id: nid, typeId: sn.typeId, name: sn.name, color: sn.color, border: sn.border,
-                    openAction: sn.openAction,
+                    ...sn,
+                    id: nid,
                     x: sn.x + 28, y: sn.y + 28,
-                    inPorts: sn.inPorts.map((p) => ({ ...p })),
-                    outPorts: sn.outPorts.map((p) => ({ ...p })),
                 });
                 const nn = this.nodes.find((x) => x.id === id);
                 if (nn !== undefined) added.push(nn);
             }
             for (const l of this.clip!.links) {
-                const f = map.get(l.from);
-                const t = map.get(l.to);
+                const f = map.get(l.from.nodeId);
+                const t = map.get(l.to.nodeId);
                 if (f !== undefined && t !== undefined)
-                    this.addLink({ from: f, fromPort: l.fromPort, to: t, toPort: l.toPort });
+                    this.addLink({
+                        from: f,
+                        fromPort: l.from.portId,
+                        to: t,
+                        toPort: l.to.portId,
+                        metadata: l.metadata,
+                    });
             }
         });
         this.setSelection(added);
@@ -924,6 +1296,7 @@ export class Diagram {
             const [wx, wy] = this.toWorld(sx, sy);
             const portHit = this.portAt(wx, wy);
             if (portHit !== null) {
+                this.emit('portSelected', portHit);
                 // Pressing ANY socket consumes the gesture — start a link
                 // from an out-port; for an in-port (link can't originate
                 // there) just do nothing. Never fall through to panning,
@@ -1009,7 +1382,12 @@ export class Diagram {
             }
             // node hover (for tooltip)
             const nodeHit = hit === null ? this.nodeAt(wx, wy) : null;
-            if (nodeHit !== this.hoverNode) { this.hoverNode = nodeHit; dirty = true; }
+            if (nodeHit !== this.hoverNode) {
+                if (this.hoverNode !== null) this.emit('nodeHover', { node: this.hoverNode, hovering: false });
+                this.hoverNode = nodeHit;
+                if (nodeHit !== null) this.emit('nodeHover', { node: nodeHit, hovering: true });
+                dirty = true;
+            }
             // hover-delay before the tooltip appears
             const tipTgt: PortModel | NodeModel | null = this.hoverPort?.port ?? this.hoverNode;
             if (tipTgt !== this.tipTarget) {
@@ -1111,6 +1489,9 @@ export class Diagram {
             this.scheduleDraw();
         }, { passive: false });
         this.canvas.addEventListener('pointerleave', () => {
+            if (this.hoverPort !== null) this.emit('portHover', { node: this.hoverPort.node, port: this.hoverPort.port, hovering: false });
+            if (this.hoverNode !== null) this.emit('nodeHover', { node: this.hoverNode, hovering: false });
+            if (this.hoveredLink !== null) this.emit('linkHover', { link: this.hoveredLink, hovering: false });
             this.hoverPort = null; this.hoverNode = null; this.hoveredLink = null;
             this.tipTarget = null; this.tipShow = false;
             if (this.tipTimer !== null) { clearTimeout(this.tipTimer); this.tipTimer = null; }
@@ -1281,6 +1662,10 @@ export class Diagram {
             if (errors.length > 0) {
                 text = errors.join('\n');
                 isError = true;
+            } else if (this.showNodeMessages && n.message.length > 0) {
+                text = n.message;
+            } else if (n.description.length > 0) {
+                text = n.description;
             } else {
                 text = n.typeId && n.typeId !== n.name ? `${n.name}   [${n.typeId}]` : n.name;
             }

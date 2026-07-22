@@ -189,12 +189,16 @@ diagram.setLinkValidator(({ fromPort, toPort }) =>
 diagram.on('nodeSelected', ({ node: selected }) => {
     setStatus(selected === null ? 'Selection cleared.' : `Selected: ${selected.name}`);
 });
-diagram.on('nodeAdded', ({ node: added }) => {
+diagram.on('nodeAdded', ({ nodes }) => {
+    const added = nodes[0];
+    if (added === undefined) return;
     setStatus(`Added: ${added.name}`);
     updateState();
 });
 diagram.on('nodeRemoved', updateState);
-diagram.on('linkAdded', ({ link }) => {
+diagram.on('linkAdded', ({ links }) => {
+    const link = links[0];
+    if (link === undefined) return;
     setStatus(`Connected ${String(link.outNode)} → ${String(link.inNode)}`);
     updateState();
 });
