@@ -502,6 +502,9 @@ test('selected link endpoint can be dragged to another compatible port', () => {
         id: 'source', name: 'Source', x: 20, y: 50,
         outPorts: [{ id: 'out', name: 'Out', type: 'number' }],
     }, {
+        id: 'source-b', name: 'Source B', x: 20, y: 210,
+        outPorts: [{ id: 'out', name: 'Out', type: 'number' }],
+    }, {
         id: 'sink-a', name: 'Sink A', x: 300, y: 20,
         inPorts: [{ id: 'in', name: 'In', type: 'number' }],
     }, {
@@ -509,6 +512,56 @@ test('selected link endpoint can be dragged to another compatible port', () => {
         inPorts: [{ id: 'in', name: 'In', type: 'number' }],
     }], [{ id: 'stable-link', from: 'source', fromPort: 'out', to: 'sink-a', toPort: 'in' }]);
     diagram.selectLinkById('stable-link');
+
+    const renderer = diagram as unknown as {
+        findNode(id: string): {
+            inPorts: Array<{ cx: number; cy: number }>;
+            outPorts: Array<{ cx: number; cy: number }>;
+        } | undefined;
+        toScreen(x: number, y: number): [number, number];
+    };
+    const oldPort = renderer.findNode('sink-a')!.inPorts[0];
+    const newPort = renderer.findNode('sink-b')!.inPorts[0];
+    const [oldX, oldY] = renderer.toScreen(oldPort.cx, oldPort.cy);
+    const [newX, newY] = renderer.toScreen(newPort.cx, newPort.cy);
+    host.canvas!.dispatch('pointerdown', {
+        clientX: oldX, clientY: oldY, pointerId: 1, pointerType: 'mouse', button: 0,
+        shiftKey: false, ctrlKey: false, metaKey: false, altKey: false,
+    });
+    host.canvas!.dispatch('pointermove', { clientX: newX, clientY: newY });
+    fakeWindow.dispatch('pointerup', { clientX: newX, clientY: newY, shiftKey: false });
+
+    assert.equal(diagram.saveDocument().links[0].to.nodeId, 'sink-b');
+    diagram.undo();
+    assert.equal(diagram.saveDocument().links[0].to.nodeId, 'sink-a');
+
+    const oldSource = renderer.findNode('source')!.outPorts[0];
+    const newSource = renderer.findNode('source-b')!.outPorts[0];
+    const [oldSourceX, oldSourceY] = renderer.toScreen(oldSource.cx, oldSource.cy);
+    const [newSourceX, newSourceY] = renderer.toScreen(newSource.cx, newSource.cy);
+    host.canvas!.dispatch('pointerdown', {
+        clientX: oldSourceX, clientY: oldSourceY, pointerId: 2, pointerType: 'mouse', button: 0,
+        shiftKey: false, ctrlKey: false, metaKey: false, altKey: false,
+    });
+    host.canvas!.dispatch('pointermove', { clientX: newSourceX, clientY: newSourceY });
+    fakeWindow.dispatch('pointerup', { clientX: newSourceX, clientY: newSourceY, shiftKey: false });
+    assert.equal(diagram.saveDocument().links[0].from.nodeId, 'source-b');
+    diagram.undo();
+    assert.equal(diagram.saveDocument().links[0].from.nodeId, 'source');
+});
+
+test('a connected input can be rewired in one drag without preselecting its link', () => {
+    const { diagram, host, fakeWindow } = makeDiagram();
+    diagram.load([{
+        id: 'source', name: 'Source', x: 20, y: 50,
+        outPorts: [{ id: 'out', name: 'Out', type: 'number' }],
+    }, {
+        id: 'sink-a', name: 'Sink A', x: 300, y: 20,
+        inPorts: [{ id: 'in', name: 'In', type: 'number' }],
+    }, {
+        id: 'sink-b', name: 'Sink B', x: 300, y: 180,
+        inPorts: [{ id: 'in', name: 'In', type: 'number' }],
+    }], [{ id: 'stable-link', from: 'source', fromPort: 'out', to: 'sink-a', toPort: 'in' }]);
 
     const renderer = diagram as unknown as {
         findNode(id: string): { inPorts: Array<{ cx: number; cy: number }> } | undefined;
@@ -526,8 +579,60 @@ test('selected link endpoint can be dragged to another compatible port', () => {
     fakeWindow.dispatch('pointerup', { clientX: newX, clientY: newY, shiftKey: false });
 
     assert.equal(diagram.saveDocument().links[0].to.nodeId, 'sink-b');
-    diagram.undo();
-    assert.equal(diagram.saveDocument().links[0].to.nodeId, 'sink-a');
+    assert.deepEqual(diagram.getSelection().linkIds, ['stable-link']);
+});
+
+test('direct output drags preserve single-link and multi-link port policies', () => {
+    const setup = (maxLinks: number) => {
+        const fixture = makeDiagram();
+        fixture.diagram.load([{
+            id: 'source-a', name: 'Source A', x: 20, y: 20,
+            outPorts: [{ id: 'out', name: 'Out', type: 'number', maxLinks }],
+        }, {
+            id: 'source-b', name: 'Source B', x: 20, y: 180,
+            outPorts: [{ id: 'out', name: 'Out', type: 'number' }],
+        }, {
+            id: 'sink-a', name: 'Sink A', x: 320, y: 20,
+            inPorts: [{ id: 'in', name: 'In', type: 'number' }],
+        }, {
+            id: 'sink-b', name: 'Sink B', x: 320, y: 180,
+            inPorts: [{ id: 'in', name: 'In', type: 'number' }],
+        }], [{ id: 'stable-link', from: 'source-a', fromPort: 'out', to: 'sink-a', toPort: 'in' }]);
+        return fixture;
+    };
+    const portPosition = (diagram: Diagram, nodeId: string, direction: 'inPorts' | 'outPorts') => {
+        const renderer = diagram as unknown as {
+            findNode(id: string): Record<typeof direction, Array<{ cx: number; cy: number }>> | undefined;
+            toScreen(x: number, y: number): [number, number];
+        };
+        const port = renderer.findNode(nodeId)![direction][0];
+        return renderer.toScreen(port.cx, port.cy);
+    };
+    const drag = (
+        fixture: ReturnType<typeof setup>,
+        from: [number, number],
+        to: [number, number],
+    ) => {
+        fixture.host.canvas!.dispatch('pointerdown', {
+            clientX: from[0], clientY: from[1], pointerId: 1, pointerType: 'mouse', button: 0,
+            shiftKey: false, ctrlKey: false, metaKey: false, altKey: false,
+        });
+        fixture.host.canvas!.dispatch('pointermove', { clientX: to[0], clientY: to[1] });
+        fixture.fakeWindow.dispatch('pointerup', { clientX: to[0], clientY: to[1], shiftKey: false });
+    };
+
+    const single = setup(1);
+    drag(single, portPosition(single.diagram, 'source-a', 'outPorts'),
+        portPosition(single.diagram, 'sink-b', 'inPorts'));
+    assert.equal(single.diagram.saveDocument().links.length, 1);
+    assert.equal(single.diagram.saveDocument().links[0].to.nodeId, 'sink-a');
+
+    const multi = setup(0);
+    drag(multi, portPosition(multi.diagram, 'source-a', 'outPorts'),
+        portPosition(multi.diagram, 'sink-b', 'inPorts'));
+    assert.equal(multi.diagram.saveDocument().links.length, 2);
+    assert.ok(multi.diagram.saveDocument().links.some((link) => link.to.nodeId === 'sink-a'));
+    assert.ok(multi.diagram.saveDocument().links.some((link) => link.to.nodeId === 'sink-b'));
 });
 
 test('dynamic input anchors grow typed siblings and prune them with the link', () => {

@@ -135,6 +135,12 @@ accepted types at runtime. Lowering a limit keeps existing wires and only
 rejects new ones. `Any`, `Object`, `System.Object` and `*` are wildcard socket
 types and therefore connect to every concrete type.
 
+Drag a connected input socket with one wire to retarget that wire directly.
+To move an output end, or choose one wire on a socket with several connections,
+select the wire and drag its diamond endpoint handle. Dragging an output socket
+itself always means "create another wire", so fan-out behaviour stays
+unambiguous. Every successful relink is one undoable edit.
+
 Wrap a host properties form in `transaction(label, action)` when it changes
 several node or port fields. The edits are committed as one undo/redo operation;
 if the action throws, every edit made inside it is rolled back.

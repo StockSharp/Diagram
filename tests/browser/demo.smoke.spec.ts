@@ -149,3 +149,116 @@ test('component can be destroyed without leaving its canvas behind', async ({ pa
     await expect(page.locator('#diagram canvas')).toHaveCount(0);
     await expect(page.locator('[data-ssdiagram-fullscreen-button]')).toHaveCount(0);
 });
+
+test('selected link endpoint can be relinked with its visible handle', async ({ page }) => {
+    await page.goto('/tests/browser/fixtures/component.html');
+    await page.waitForFunction(() => (window as unknown as { fixtureReady?: boolean }).fixtureReady === true);
+    const canvas = page.locator('#diagram canvas');
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+
+    const geometry = await page.evaluate(() => {
+        const facade = (window as unknown as { fixtureDiagram: unknown }).fixtureDiagram as {
+            canvas: {
+                links: Array<{ id: string; from: string; to: string }>;
+                nodes: Array<{ id: string; inPorts: Array<{ id: string; cx: number; cy: number }> }>;
+                endpoint(link: unknown, end: 'from' | 'to'): [number, number];
+                routeLink(a: [number, number], b: [number, number], excluded: Set<string>): number[][];
+                toScreen(x: number, y: number): [number, number];
+            };
+        };
+        const engine = facade.canvas;
+        const link = engine.links[0];
+        const from = engine.endpoint(link, 'from');
+        const to = engine.endpoint(link, 'to');
+        const route = engine.routeLink(from, to, new Set([link.from, link.to]));
+        let click = route[0];
+        let longest = -1;
+        for (let index = 1; index < route.length; index += 1) {
+            const previous = route[index - 1];
+            const current = route[index];
+            const length = Math.hypot(current[0] - previous[0], current[1] - previous[1]);
+            if (length > longest) {
+                longest = length;
+                click = [(previous[0] + current[0]) / 2, (previous[1] + current[1]) / 2];
+            }
+        }
+        const target = engine.nodes.find((node) => node.id === 'result')!.inPorts
+            .find((port) => port.id === 'fast')!;
+        return {
+            linkId: link.id,
+            click: engine.toScreen(click[0], click[1]),
+            endpoint: engine.toScreen(to[0], to[1]),
+            target: engine.toScreen(target.cx, target.cy),
+        };
+    });
+
+    await page.mouse.click(box!.x + geometry.click[0], box!.y + geometry.click[1]);
+    await expect.poll(() => page.evaluate(() =>
+        (window as unknown as { fixtureDiagram: { getSelection(): { linkIds: string[] } } })
+            .fixtureDiagram.getSelection().linkIds)).toEqual([geometry.linkId]);
+
+    await page.mouse.move(box!.x + geometry.endpoint[0], box!.y + geometry.endpoint[1]);
+    await page.mouse.down();
+    await page.mouse.move(box!.x + geometry.target[0], box!.y + geometry.target[1], { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(() => page.evaluate(() => {
+        const document = (window as unknown as {
+            fixtureDiagram: { saveDocument(): { links: Array<{ id: string; to: { nodeId: string; portId: string } }> } };
+        }).fixtureDiagram.saveDocument();
+        return document.links.find((link) => link.id === document.links[0].id)?.to;
+    })).toEqual({ nodeId: 'result', portId: 'fast' });
+
+    await page.evaluate(() => (window as unknown as { fixtureDiagram: { undo(): void } }).fixtureDiagram.undo());
+    await expect.poll(() => page.evaluate(() => {
+        const document = (window as unknown as {
+            fixtureDiagram: { saveDocument(): { links: Array<{ to: { nodeId: string; portId: string } }> } };
+        }).fixtureDiagram.saveDocument();
+        return document.links[0].to;
+    })).toEqual({ nodeId: 'fast', portId: 'in' });
+});
+
+test('demo rewires a connected input in one drag without preselecting the link', async ({ page }) => {
+    await page.goto('/demo/index.html');
+    await page.waitForFunction(() =>
+        (window as unknown as { stockSharpDiagramDemo?: unknown }).stockSharpDiagramDemo !== undefined);
+    const canvas = page.locator('#diagram canvas');
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+
+    const geometry = await page.evaluate(() => {
+        const facade = (window as unknown as { stockSharpDiagramDemo: unknown }).stockSharpDiagramDemo as {
+            canvas: {
+                links: Array<{ id: string; from: string; to: string }>;
+                nodes: Array<{ id: string; inPorts: Array<{ id: string; cx: number; cy: number }> }>;
+                endpoint(link: unknown, end: 'to'): [number, number];
+                toScreen(x: number, y: number): [number, number];
+            };
+        };
+        const engine = facade.canvas;
+        const link = engine.links.find((candidate) => candidate.from === 'fast' && candidate.to === 'cross')!;
+        const endpoint = engine.endpoint(link, 'to');
+        const target = engine.nodes.find((node) => node.id === 'chart')!.inPorts
+            .find((port) => port.id === 'object')!;
+        return {
+            linkId: link.id,
+            endpoint: engine.toScreen(endpoint[0], endpoint[1]),
+            target: engine.toScreen(target.cx, target.cy),
+        };
+    });
+
+    await page.mouse.move(box!.x + geometry.endpoint[0], box!.y + geometry.endpoint[1]);
+    await page.mouse.down();
+    await page.mouse.move(box!.x + geometry.target[0], box!.y + geometry.target[1], { steps: 10 });
+    await page.mouse.up();
+
+    await expect.poll(() => page.evaluate((linkId) => {
+        const document = (window as unknown as {
+            stockSharpDiagramDemo: {
+                saveDocument(): { links: Array<{ id: string; to: { nodeId: string; portId: string } }> };
+            };
+        }).stockSharpDiagramDemo.saveDocument();
+        return document.links.find((link) => link.id === linkId)?.to;
+    }, geometry.linkId)).toEqual({ nodeId: 'chart', portId: 'object' });
+    await expect(page.locator('#status')).toContainText('Relinked fast → chart.');
+});

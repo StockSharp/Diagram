@@ -446,6 +446,8 @@ const HEADER_H = 22;
 const PORT_R = 6;
 const PORT_ROW_H = 20;
 const NODE_PAD = 10;
+const RELINK_HANDLE_PX = 8;  // WPF relink adornment is an 8x8 diamond
+const RELINK_DRAG_THRESHOLD_PX = 4;
 const PORT_SQ = 9;           // socket square size — sits outside the node
 const LINK_STUB = 22;        // min horizontal lead-in/out before the elbow
 const LINK_HOP = 5;          // jump-over arc radius at crossings
@@ -542,6 +544,12 @@ export class Diagram {
     private clip: DiagramDocument | null = null;
     private linking: { node: NodeModel; port: PortModel } | null = null;
     private relinking: { link: LinkModel; end: 'from' | 'to' } | null = null;
+    private relinkCandidate: {
+        link: LinkModel;
+        end: 'from' | 'to';
+        sx: number;
+        sy: number;
+    } | null = null;
     private linkSnap: { node: NodeModel; port: PortModel } | null = null;
     private cursor = { x: 0, y: 0 };           // screen
     private hoverPort: { node: NodeModel; port: PortModel } | null = null;
@@ -1677,6 +1685,23 @@ export class Diagram {
         }
         return null;
     }
+    private selectedLinkEndpointAt(wx: number, wy: number): 'from' | 'to' | null {
+        if (this.selectedLink === null) return null;
+        const radius = (PORT_R + 7) / this.scale;
+        for (const end of ['from', 'to'] as const) {
+            const point = this.endpoint(this.selectedLink, end);
+            if (point !== null && (wx - point[0]) ** 2 + (wy - point[1]) ** 2 <= radius ** 2) return end;
+        }
+        return null;
+    }
+    private directRelinkAtPort(node: NodeModel, port: PortModel): {
+        link: LinkModel;
+        end: 'from' | 'to';
+    } | null {
+        if (port.direction !== 'in') return null;
+        const incoming = this.links.filter((link) => link.to === node.id && link.toPort === port.id);
+        return incoming.length === 1 ? { link: incoming[0], end: 'to' } : null;
+    }
     private nodeAt(wx: number, wy: number): NodeModel | null {
         for (let i = this.nodes.length - 1; i >= 0; i -= 1) {
             const n = this.nodes[i];
@@ -1975,7 +2000,7 @@ export class Diagram {
             else if (link !== null && this.selectedLink !== link) this.selectLink(link);
         }
         this.dragNode = null; this.dragStart = []; this.rubber = null;
-        this.panning = false; this.linking = null; this.relinking = null; this.linkSnap = null;
+        this.panning = false; this.linking = null; this.relinking = null; this.relinkCandidate = null; this.linkSnap = null;
         this.scheduleDraw();
         this.emit('contextMenu', { x: pageX, y: pageY, link, node, port });
     }
@@ -2012,6 +2037,7 @@ export class Diagram {
             // Arm a long-press timer on every pointerdown. Cancelled by
             // move-beyond-tolerance, pointerup, or any other gesture.
             this.cancelLongPress();
+            this.relinkCandidate = null;
             this.lpStart = { sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY };
             const downSx = e.clientX, downSy = e.clientY;
             const r0 = this.canvas.getBoundingClientRect();
@@ -2025,6 +2051,15 @@ export class Diagram {
             if (this.ovHit(sx, sy)) { this.ovDragging = true; this.ovPanTo(sx, sy); return; }
             if (!this.permissions.inspect) this.cancelLongPress();
             const [wx, wy] = this.toWorld(sx, sy);
+            const selectedEndpoint = this.selectedLinkEndpointAt(wx, wy);
+            if (e.button === 0 && this.permissions.createLinks && this.selectedLink !== null
+                && selectedEndpoint !== null) {
+                this.relinking = { link: this.selectedLink, end: selectedEndpoint };
+                this.linking = null;
+                this.linkSnap = null;
+                this.cursor = { x: sx, y: sy };
+                return;
+            }
             const portHit = this.portAt(wx, wy);
             if (portHit !== null) {
                 const selectedLink = this.selectedLink;
@@ -2062,10 +2097,21 @@ export class Diagram {
                         return;
                     }
                 }
-                // Pressing ANY socket consumes the gesture — start a link
-                // from an out-port; for an in-port (link can't originate
-                // there) just do nothing. Never fall through to panning,
-                // so grabbing a socket never drags the whole schema.
+                // A single existing input link can be rewired in one drag
+                // without a separate selection click.
+                const directRelink = this.permissions.createLinks
+                    ? this.directRelinkAtPort(portHit.node, portHit.port)
+                    : null;
+                if (directRelink !== null) {
+                    this.relinkCandidate = { ...directRelink, sx, sy };
+                    this.linking = null;
+                    this.relinking = null;
+                    this.linkSnap = null;
+                    this.cursor = { x: sx, y: sy };
+                    return;
+                }
+                // Other output sockets start an additional link; input sockets
+                // consume the gesture so they never drag the whole diagram.
                 if (this.permissions.createLinks && portHit.port.direction === 'out') {
                     this.linking = portHit;
                     this.relinking = null;
@@ -2120,6 +2166,16 @@ export class Diagram {
             }
             if (this.ovDragging) { this.ovPanTo(sx, sy); return; }
             const [wx, wy] = this.toWorld(sx, sy);
+            if (this.relinkCandidate !== null) {
+                const candidate = this.relinkCandidate;
+                if (Math.hypot(sx - candidate.sx, sy - candidate.sy) <= RELINK_DRAG_THRESHOLD_PX) return;
+                this.relinkCandidate = null;
+                this.relinking = { link: candidate.link, end: candidate.end };
+                if (this.permissions.select) this.selectLink(candidate.link);
+                this.linkSnap = this.findSnap();
+                this.scheduleDraw();
+                return;
+            }
             if (this.dragNode !== null) {
                 let ddx = wx - this.dragAnchor.wx;
                 let ddy = wy - this.dragAnchor.wy;
@@ -2198,13 +2254,19 @@ export class Diagram {
                 if (linkHit !== null) this.emit('linkHover', { link: linkHit, hovering: true });
                 dirty = true;
             }
-            this.canvas.style.cursor = hit !== null ? 'pointer'
+            const endpointHit = this.permissions.createLinks ? this.selectedLinkEndpointAt(wx, wy) : null;
+            const directRelinkHit = this.permissions.createLinks && hit !== null
+                ? this.directRelinkAtPort(hit.node, hit.port)
+                : null;
+            this.canvas.style.cursor = endpointHit !== null || directRelinkHit !== null ? 'grab'
+                : hit !== null ? 'pointer'
                 : overNode ? 'move'
                 : linkHit !== null ? 'pointer' : 'default';
             if (dirty) this.scheduleDraw();
         });
         const finish = (e: MouseEvent | PointerEvent): void => {
             this.cancelLongPress();
+            this.relinkCandidate = null;
             if (this.dragNode !== null) {
                 // Capture before/after positions so the whole multi-node
                 // drag is ONE undo step. Skip the action if nothing
@@ -2349,7 +2411,8 @@ export class Diagram {
                 pinchPivotW = this.toWorld(mx, my);
                 pinching = true;
                 this.dragNode = null; this.dragStart = [];
-                this.panning = false; this.rubber = null; this.linking = null; this.relinking = null;
+                this.panning = false; this.rubber = null; this.linking = null;
+                this.relinking = null; this.relinkCandidate = null;
             }
         }, { passive: false });
         this.listen(this.canvas, 'touchmove', (e) => {
@@ -2464,6 +2527,8 @@ export class Diagram {
         }
         if (options.transient && (this.linking !== null || this.relinking !== null)) this.drawPendingLink();
         for (const n of this.nodes) this.drawNode(n, options.selection && this.selectedNodes.has(n), options);
+        if (options.selection && this.permissions.createLinks && this.relinking === null)
+            this.drawSelectedLinkEndpoints();
         if (options.transient && this.rubber !== null) {
             const rx = Math.min(this.rubber.x0, this.rubber.x);
             const ry = Math.min(this.rubber.y0, this.rubber.y);
@@ -2777,6 +2842,26 @@ export class Diagram {
         ctx.moveTo(0, 0); ctx.lineTo(-9, -4.5); ctx.lineTo(-9, 4.5); ctx.closePath();
         ctx.fill();
         ctx.restore();
+    }
+    private drawSelectedLinkEndpoints(): void {
+        if (this.selectedLink === null) return;
+        const ctx = this.ctx;
+        const halfSize = RELINK_HANDLE_PX / 2 / this.scale;
+        for (const end of ['from', 'to'] as const) {
+            const point = this.endpoint(this.selectedLink, end);
+            if (point === null) continue;
+            ctx.beginPath();
+            ctx.moveTo(point[0], point[1] - halfSize);
+            ctx.lineTo(point[0] + halfSize, point[1]);
+            ctx.lineTo(point[0], point[1] + halfSize);
+            ctx.lineTo(point[0] - halfSize, point[1]);
+            ctx.closePath();
+            ctx.fillStyle = '#00ffff';
+            ctx.fill();
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1 / this.scale;
+            ctx.stroke();
+        }
     }
     private drawPendingLink(): void {
         if (this.linking === null && this.relinking === null) return;

@@ -1684,6 +1684,7 @@ export declare class Diagram {
     private clip;
     private linking;
     private relinking;
+    private relinkCandidate;
     private linkSnap;
     private cursor;
     private hoverPort;
@@ -1820,6 +1821,7 @@ export declare class Diagram {
     private portColor;
     private portAt;
     private selectedLinkEndpointAt;
+    private directRelinkAtPort;
     private nodeAt;
     private obstaclesFor;
     private routeLink;
