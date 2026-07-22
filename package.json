@@ -1,13 +1,39 @@
 {
-  "name": "ssdiagram",
+  "name": "@stocksharp/diagram",
   "version": "0.1.0",
-  "description": "Complete StockSharp strategy-diagram stack: typed API, canvas runtime, palette and web embed.",
-  "license": "UNLICENSED",
-  "private": true,
+  "description": "Browser strategy-diagram editor for StockSharp with typed ports, palette, canvas rendering, persistence, and a TypeScript API.",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": {
+    "name": "StockSharp Platform LLC",
+    "url": "https://stocksharp.com/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/StockSharp/Diagram.git"
+  },
+  "homepage": "https://stocksharp.github.io/Diagram/",
+  "bugs": {
+    "url": "https://github.com/StockSharp/Diagram/issues"
+  },
+  "keywords": [
+    "stocksharp",
+    "diagram",
+    "strategy",
+    "trading",
+    "algorithmic-trading",
+    "node-editor",
+    "visual-programming",
+    "workflow",
+    "typescript",
+    "canvas"
+  ],
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/esm/index.js",
   "module": "./dist/esm/index.js",
   "types": "./dist/types/index.d.ts",
+  "unpkg": "./dist/ssdiagram.js",
+  "jsdelivr": "./dist/ssdiagram.js",
   "exports": {
     ".": {
       "types": "./dist/types/index.d.ts",
@@ -70,10 +96,17 @@
     "src",
     "LICENSE",
     "NOTICE",
-    "README.md"
+    "README.md",
+    "sample.png"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "node build.mjs",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "api:check": "node tools/check-public-api.mjs",
     "api:update": "node tools/check-public-api.mjs --update",
@@ -81,7 +114,8 @@
     "build:tests": "node build-tests.mjs",
     "test": "npm run typecheck && npm run api:check && npm run build:tests && node --test \"tests/_dist/**/*.test.cjs\"",
     "test:browser": "npm run build && playwright test",
-    "pack:check": "npm run build && npm pack --dry-run"
+    "pack:check": "npm pack --dry-run",
+    "release:check": "node tools/check-release-tag.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",

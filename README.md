@@ -1,58 +1,27 @@
-# StockSharp JS Strategy Diagram
+# @stocksharp/diagram
 
-The complete StockSharp web strategy-diagram component: the typed
-`StockSharpDiagram` API, catalog and palette, the canvas renderer, the
-read-only web embed, and the versioned diagram document model.
+[![Build and test](https://github.com/StockSharp/Diagram/actions/workflows/ci.yml/badge.svg)](https://github.com/StockSharp/Diagram/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/%40stocksharp%2Fdiagram.svg)](https://www.npmjs.com/package/@stocksharp/diagram)
+[![License](https://img.shields.io/badge/license-StockSharp%20EULA-c8202f.svg)](LICENSE)
+
+**StockSharp JS Strategy Diagram** is the complete browser strategy-diagram
+component: a typed `StockSharpDiagram` API, catalog and palette, canvas
+renderer, read-only web embed, and versioned diagram document model.
 
 ![StockSharp JS Strategy Diagram — visual strategy editor with typed connections and element palette](sample.png)
 
-**Live demo: https://stocksharp.github.io/Diagram/demo/**
+[Live demo](https://stocksharp.github.io/Diagram/demo/) ·
+[GitHub repository](https://github.com/StockSharp/Diagram) ·
+[Issue tracker](https://github.com/StockSharp/Diagram/issues)
 
 The demo uses the same full stack exported to applications. It is not a
 separate mock renderer.
 
-## Architecture
+## Quick start
 
-The component has one document model and a separate rendering layer:
-
-| Layer | Source | Purpose |
-| --- | --- | --- |
-| Document core | `src/core/*` | Versioned document serialization plus independent runtime, view and selection state |
-| Public component API | `src/diagram/stocksharp-diagram.ts` | `StockSharpDiagram`: catalog-aware nodes, ports, validation, events, persistence, history and theming |
-| Models and palette | `src/diagram/{types,catalog,palette}.ts` | Public data model and draggable HTML element palette |
-| Web embed | `src/embed.ts` | Self-contained read-only rendering for web applications |
-| Canvas renderer | `src/canvas-renderer.ts` | Internal drawing, routing, selection, editing, zoom, touch and overview |
-
-Applications use `StockSharpDiagram` or the read-only embed. The renderer is
-an implementation detail and is bundled into both entry points, so consumers
-do not need a second runtime or copied source files.
-
-## Repository layout
-
-```text
-src/
-  index.ts                 complete public entry point
-  core/
-    model.ts               canonical versioned document
-    document.ts            validation and serialization
-    state.ts               runtime, view and selection state
-    history.ts             commands, transactions, undo and redo
-    action-registry.ts     executable context and host actions
-  diagram/
-    stocksharp-diagram.ts  StockSharpDiagram API
-    api.ts                 typed public events and options
-    types.ts               Node, DiagramNode, Port and Link models
-    catalog.ts             node and socket-type catalog
-    palette.ts             draggable HTML palette
-    event-emitter.ts
-  embed.ts                 self-contained read-only web renderer
-  canvas-renderer.ts       internal canvas renderer
-examples/basic.ts          full-stack demo source
-demo/                      Charts-style GitHub Pages shell
-tests/                     core, renderer and public-API integration tests
+```sh
+npm install @stocksharp/diagram
 ```
-
-## TypeScript usage
 
 ```ts
 import {
@@ -61,7 +30,7 @@ import {
   Node,
   StockSharpCatalog,
   StockSharpDiagram,
-} from 'ssdiagram';
+} from '@stocksharp/diagram';
 
 const catalog = new StockSharpCatalog();
 catalog.addNodeType(new Node({
@@ -90,8 +59,19 @@ diagram.setTheme({
 });
 ```
 
-See `examples/basic.ts` for catalog construction, the draggable palette,
-typed links, history, read-only mode, resize handling and theme switching.
+The package also ships a ready-to-use browser bundle exposed as
+`window.SSDiagram`:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@stocksharp/diagram@0.1.0/dist/ssdiagram.js"></script>
+<script>
+  const { StockSharpCatalog, StockSharpDiagram } = window.SSDiagram;
+</script>
+```
+
+See the [complete example](https://github.com/StockSharp/Diagram/blob/main/examples/basic.ts)
+for catalog construction, the draggable palette, typed links, history,
+read-only mode, resize handling and theme switching.
 
 The palette mirrors the Designer toolbox contract without owning host
 behaviour. Subscribe to `nodeActivated` to insert/open an element and to
@@ -241,32 +221,76 @@ failure, and `documentLoadFailed` is emitted. The original exception is still
 thrown so callers can log or report it; loading a valid document clears the
 overlay.
 
+## Architecture
+
+The component has one document model and a separate rendering layer:
+
+| Layer | Source | Purpose |
+| --- | --- | --- |
+| Document core | `src/core/*` | Versioned document serialization plus independent runtime, view and selection state |
+| Public component API | `src/diagram/stocksharp-diagram.ts` | `StockSharpDiagram`: catalog-aware nodes, ports, validation, events, persistence, history and theming |
+| Models and palette | `src/diagram/{types,catalog,palette}.ts` | Public data model and draggable HTML element palette |
+| Web embed | `src/embed.ts` | Self-contained read-only rendering for web applications |
+| Canvas renderer | `src/canvas-renderer.ts` | Internal drawing, routing, selection, editing, zoom, touch and overview |
+
+Applications use `StockSharpDiagram` or the read-only embed. The renderer is
+an implementation detail and is bundled into both entry points, so consumers
+do not need a second runtime or copied source files.
+
+## Repository layout
+
+```text
+src/
+  index.ts                 complete public entry point
+  core/
+    model.ts               canonical versioned document
+    document.ts            validation and serialization
+    state.ts               runtime, view and selection state
+    history.ts             commands, transactions, undo and redo
+    action-registry.ts     executable context and host actions
+  diagram/
+    stocksharp-diagram.ts  StockSharpDiagram API
+    api.ts                 typed public events and options
+    types.ts               Node, DiagramNode, Port and Link models
+    catalog.ts             node and socket-type catalog
+    palette.ts             draggable HTML palette
+    event-emitter.ts
+  embed.ts                 self-contained read-only web renderer
+  canvas-renderer.ts       internal canvas renderer
+examples/basic.ts          full-stack demo source
+demo/                      Charts-style GitHub Pages shell
+tests/                     core, renderer and public-API integration tests
+```
+
 ## Source-first consumption
 
-Applications can let their own esbuild/Vite build compile this repository's
-TypeScript:
+Applications can let their own esbuild/Vite build compile the TypeScript
+published inside the package:
 
 ```json
 {
   "dependencies": {
-    "ssdiagram": "file:../../Diagram"
+    "@stocksharp/diagram": "^0.1.0"
   }
 }
 ```
 
 ```ts
-import { StockSharpDiagram } from 'ssdiagram/source';
-import { renderAll } from 'ssdiagram/source/embed';
+import { StockSharpDiagram } from '@stocksharp/diagram/source';
+import { renderAll } from '@stocksharp/diagram/source/embed';
 ```
+
+For sibling-repository development, replace the version with
+`"file:../../Diagram"`; the import paths stay identical.
 
 Dedicated entry points are available for consumers with narrower needs:
 
-- `ssdiagram/document` - versioned document parser and serializer;
-- `ssdiagram/state` - runtime/view/selection state helpers;
-- `ssdiagram/history` - command and transaction history;
-- `ssdiagram/actions` - typed action registry;
-- `ssdiagram/embed` — compiled read-only web renderer;
-- `ssdiagram/catalog`, `ssdiagram/palette`, `ssdiagram/types`.
+- `@stocksharp/diagram/document` - versioned document parser and serializer;
+- `@stocksharp/diagram/state` - runtime/view/selection state helpers;
+- `@stocksharp/diagram/history` - command and transaction history;
+- `@stocksharp/diagram/actions` - typed action registry;
+- `@stocksharp/diagram/embed` — compiled read-only web renderer;
+- `@stocksharp/diagram/catalog`, `@stocksharp/diagram/palette`, `@stocksharp/diagram/types`.
 
 ## Build output
 
@@ -287,6 +311,7 @@ npm test
 npm run build
 npm run serve
 npm run pack:check
+npm run release:check -- v0.1.0
 npm run api:check
 npm run api:update  # only after reviewing an intentional public API change
 npm run test:browser
@@ -299,10 +324,21 @@ at DPR 1 and 2.
 
 CI verifies type checking, the reviewed declaration snapshot, unit/integration
 tests, Chromium smoke/interaction/lifecycle checks, all bundles and tarball
-contents. GitHub Pages publishes the demo from `main`;
-GitHub Releases receive the built tarball. Public npm publication is
-intentionally disabled with `private: true` under the proprietary StockSharp
-license.
+contents. GitHub Pages publishes the demo from `main`.
+
+Publishing is release-driven. Set `package.json` to the intended version and
+publish a GitHub Release tagged `v<version>`. The `release.yml` workflow rejects
+a mismatched tag, rebuilds and tests the repository, attaches the exact `.tgz`
+artifact to the release, and publishes that tarball to npm with provenance.
+
+The first publication needs a short-lived npm granular access token in the
+repository Actions secret `NPM_TOKEN`. After `@stocksharp/diagram` exists on npm,
+configure tokenless trusted publishing, then remove the secret and revoke the
+bootstrap token:
+
+```sh
+npm trust github @stocksharp/diagram --file release.yml --repo StockSharp/Diagram --allow-publish
+```
 
 ## License
 
