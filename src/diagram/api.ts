@@ -188,6 +188,7 @@ export interface DiagramEvents extends Record<string, unknown> {
     nodeOpen: NodeChangePayload;
     nodeHelp: NodeChangePayload;
     zoomChanged: DiagramViewState;
+    viewChanged: DiagramViewState;
     selectionChanged: DiagramSelection;
     runtimeStateChanged: { state: DiagramRuntimeState };
     undoStackChanged: { canUndo: boolean; canRedo: boolean };

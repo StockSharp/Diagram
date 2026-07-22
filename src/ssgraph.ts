@@ -186,6 +186,7 @@ export interface DiagramEvents {
     nodeOpen: { node: NodeModel };
     loadFinished: { nodes: NodeModel[]; links: LinkModel[] };
     zoomChanged: { scale: number };
+    viewChanged: DiagramViewState;
     // Long-press on touch / right-click on desktop. (x, y) are page coords
     // so the host can position a DOM menu directly. Port, link or node
     // (or all null for empty-space) describe the target.
@@ -1189,7 +1190,7 @@ export class Diagram {
         this.offX = state.panX;
         this.offY = state.panY;
         this.overviewVisible = state.overviewVisible;
-        this.emit('zoomChanged', { scale: this.scale });
+        this.emitViewChanged(true);
         this.scheduleDraw();
     }
     // Compat helpers used by the ssdiagram shim. They expose internal
@@ -1324,12 +1325,12 @@ export class Diagram {
         this.scale = clamp(scale, ZOOM_MIN, ZOOM_MAX);
         this.offX = cx - wx * this.scale;
         this.offY = cy - wy * this.scale;
-        this.emit('zoomChanged', { scale: this.scale });
+        this.emitViewChanged(true);
         this.scheduleDraw();
     }
     zoomToFit(): void {
         const gb = this.graphBounds();
-        if (gb === null) { this.scale = 1; this.offX = 0; this.offY = 0; this.emit('zoomChanged', { scale: 1 }); this.scheduleDraw(); return; }
+        if (gb === null) { this.scale = 1; this.offX = 0; this.offY = 0; this.emitViewChanged(true); this.scheduleDraw(); return; }
         const pad = 40;
         const gw = (gb.maxX - gb.minX) + pad * 2;
         const gh = (gb.maxY - gb.minY) + pad * 2;
@@ -1337,12 +1338,17 @@ export class Diagram {
         this.scale = clamp(Math.min(this.width / gw, this.height / gh), ZOOM_MIN, 1);
         this.offX = (this.width - (gb.maxX + gb.minX) * this.scale) / 2;
         this.offY = (this.height - (gb.maxY + gb.minY) * this.scale) / 2;
-        this.emit('zoomChanged', { scale: this.scale });
+        this.emitViewChanged(true);
         this.scheduleDraw();
     }
     // Entrance animation: the whole scheme rises from below + fades in.
     playIntro(): void { this.introStart = performance.now(); this.scheduleDraw(); }
-    setOverviewVisible(v: boolean): void { this.overviewVisible = v; this.scheduleDraw(); }
+    setOverviewVisible(v: boolean): void {
+        if (this.overviewVisible === v) return;
+        this.overviewVisible = v;
+        this.emitViewChanged(false);
+        this.scheduleDraw();
+    }
     setTypeColors(colors: Readonly<Record<string, string>>): void {
         this.opts.typeColors = { ...colors };
         this.scheduleDraw();
@@ -2013,8 +2019,10 @@ export class Diagram {
                 }
                 this.scheduleDraw();
             }
+            const viewportMoved = this.panning || this.ovDragging;
             this.panning = false;
             this.ovDragging = false;
+            if (viewportMoved) this.emitViewChanged(false);
             if (this.linking !== null) {
                 const [sx, sy] = localXY(e);
                 const [wx, wy] = this.toWorld(sx, sy);
@@ -2067,7 +2075,7 @@ export class Diagram {
             this.scale = clamp(this.scale * factor, ZOOM_MIN, ZOOM_MAX);
             this.offX = sx - wx * this.scale;
             this.offY = sy - wy * this.scale;
-            this.emit('zoomChanged', { scale: this.scale });
+            this.emitViewChanged(true);
             this.scheduleDraw();
         }, { passive: false });
         this.listen(this.canvas, 'pointerleave', () => {
@@ -2140,7 +2148,7 @@ export class Diagram {
                 // started on (pivot stays put under the fingers).
                 this.offX = pinchPivotS[0] - pinchPivotW[0] * ns;
                 this.offY = pinchPivotS[1] - pinchPivotW[1] * ns;
-                this.emit('zoomChanged', { scale: ns });
+                this.emitViewChanged(true);
                 this.scheduleDraw();
             }
         }, { passive: false });
@@ -2668,6 +2676,11 @@ export class Diagram {
         this.offX = this.width / 2 - wx * this.scale;
         this.offY = this.height / 2 - wy * this.scale;
         this.scheduleDraw();
+    }
+
+    private emitViewChanged(zoomChanged: boolean): void {
+        if (zoomChanged) this.emit('zoomChanged', { scale: this.scale });
+        this.emit('viewChanged', this.getViewState());
     }
 }
 

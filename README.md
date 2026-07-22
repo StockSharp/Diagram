@@ -126,6 +126,13 @@ Connecting to that anchor creates a single-link sibling typed from the source;
 disconnecting, relinking, or deleting the source prunes an orphan sibling. The
 port and wire lifecycle is one undoable transaction and round-trips unchanged.
 
+Viewport preferences are deliberately separate from the strategy document.
+Persist `diagram.saveViewState()` in host settings and restore it with
+`diagram.loadViewState(value)`. The versioned snapshot contains zoom, pan and
+overview visibility; `viewChanged` fires for programmatic and interactive
+viewport changes. A damaged settings value throws `DiagramViewStateError`
+without modifying the current viewport.
+
 ### Node actions and errors
 
 Double-click handling is opt-in. Give only the node types controlled by the

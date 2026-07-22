@@ -49,6 +49,16 @@ export {
     createReadOnlyDiagramPermissions,
 } from './core/state.js';
 
+export {
+    DIAGRAM_VIEW_STATE_VERSION,
+    DiagramViewStateError,
+    createDiagramViewStateDocument,
+    parseDiagramViewState,
+    serializeDiagramViewState,
+} from './core/view-state.js';
+
+export type { DiagramViewStateDocument } from './core/view-state.js';
+
 export type {
     DiagramErrorState,
     DiagramGlobalErrorKind,

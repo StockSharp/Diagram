@@ -947,6 +947,54 @@ test('high-level move and zoom methods update the real canvas state', async () =
     assert.equal(diagram.save().nodes[0].x, 150);
 });
 
+test('high-level view settings persist separately and report viewport changes', async () => {
+    installDom();
+    const {
+        DiagramViewStateError,
+        StockSharpCatalog,
+        StockSharpDiagram,
+    } = await import('../src/index');
+    const host = new FakeHost();
+    const diagram = new StockSharpDiagram({
+        div: host as unknown as HTMLElement,
+        catalog: new StockSharpCatalog(),
+    });
+    const changes: Array<{ zoom: number; panX: number; panY: number; overviewVisible: boolean }> = [];
+    diagram.on('viewChanged', (state) => changes.push(state));
+    diagram.setViewState({ zoom: 1.5, panX: -80, panY: 25, overviewVisible: false });
+
+    const persisted = diagram.saveViewState();
+    diagram.setViewState({ zoom: 1, panX: 0, panY: 0, overviewVisible: true });
+    diagram.loadViewState(persisted);
+    assert.deepEqual(diagram.getViewState(), {
+        zoom: 1.5, panX: -80, panY: 25, overviewVisible: false,
+    });
+    assert.equal(JSON.parse(persisted).version, 1);
+    assert.deepEqual(changes.at(-1), diagram.getViewState());
+
+    const before = diagram.getViewState();
+    assert.throws(() => diagram.loadViewState({
+        version: 1,
+        view: { zoom: 'invalid', panX: 0, panY: 0, overviewVisible: true },
+    }), DiagramViewStateError);
+    assert.deepEqual(diagram.getViewState(), before);
+});
+
+test('interactive panning emits one settled viewChanged event', () => {
+    const { diagram, host, fakeWindow } = makeDiagram();
+    const views: Array<{ panX: number; panY: number }> = [];
+    diagram.on('viewChanged', ({ panX, panY }) => views.push({ panX, panY }));
+
+    host.canvas!.dispatch('pointerdown', {
+        clientX: 100, clientY: 100, pointerId: 1, pointerType: 'mouse', button: 1,
+        shiftKey: false, ctrlKey: false, altKey: false, metaKey: false,
+    });
+    host.canvas!.dispatch('pointermove', { clientX: 145, clientY: 125 });
+    fakeWindow.dispatch('pointerup', { clientX: 145, clientY: 125, shiftKey: false });
+
+    assert.deepEqual(views, [{ panX: 45, panY: 25 }]);
+});
+
 test('high-level persistent edits use canvas history without capturing runtime errors', async () => {
     installDom();
     const {

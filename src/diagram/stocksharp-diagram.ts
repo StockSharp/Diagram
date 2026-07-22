@@ -2,6 +2,10 @@ import {
     parseDiagramDocument,
     serializeDiagramDocument,
 } from '../core/document.js';
+import {
+    parseDiagramViewState,
+    serializeDiagramViewState,
+} from '../core/view-state.js';
 import type { DiagramDocument } from '../core/model.js';
 import { DiagramActionRegistry } from '../core/action-registry.js';
 import type {
@@ -309,6 +313,16 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
         this.overviewContainer?.classList.toggle('hidden', !state.overviewVisible);
     }
 
+    /** Serializes only viewport preferences; strategy data stays in saveDocument(). */
+    saveViewState(space?: number): string {
+        return serializeDiagramViewState(this.canvas.getViewState(), space);
+    }
+
+    /** Restores a versioned viewport snapshot produced by saveViewState(). */
+    loadViewState(source: string | unknown): void {
+        this.setViewState(parseDiagramViewState(source));
+    }
+
     getSelection(): DiagramSelection {
         return this.canvas.getSelection();
     }
@@ -578,6 +592,10 @@ export class StockSharpDiagram extends EventEmitter<DiagramEvents> {
             this.canvas.on('zoomChanged', () => {
                 this.updateZoomLabel();
                 this.emit('zoomChanged', this.canvas.getViewState());
+            }),
+            this.canvas.on('viewChanged', (state) => {
+                this.overviewContainer?.classList.toggle('hidden', !state.overviewVisible);
+                this.emit('viewChanged', state);
             }),
             this.canvas.on('undoStackChanged', (state) => this.emit('undoStackChanged', state)),
             this.canvas.on('contextMenu', ({ x, y, node, link, port }) => {
