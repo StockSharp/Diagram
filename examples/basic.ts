@@ -24,9 +24,10 @@ const indicatorInputType = document.querySelector<HTMLSelectElement>('#indicator
 const indicatorInputMulti = document.querySelector<HTMLInputElement>('#indicatorInputMulti');
 const indicatorOutputMulti = document.querySelector<HTMLInputElement>('#indicatorOutputMulti');
 const themeButton = document.querySelector<HTMLButtonElement>('#themeBtn');
+const fullscreenButton = document.querySelector<HTMLButtonElement>('#fullscreenBtn');
 
 if (diagramHost === null || canvasPanel === null || paletteHost === null || search === null
-    || status === null || modelStats === null || themeButton === null
+    || status === null || modelStats === null || themeButton === null || fullscreenButton === null
     || indicatorDialog === null || indicatorForm === null || indicatorTitle === null || indicatorPeriod === null
     || indicatorInputType === null || indicatorInputMulti === null || indicatorOutputMulti === null)
     throw new Error('Diagram demo markup is incomplete.');
@@ -241,14 +242,20 @@ diagram.on('linkValidation', ({ allowed, reason }) => {
     };
     setStatus(messages[reason] ?? `Rejected: ${reason}.`);
 });
-// The diagram's built-in top-right fullscreen button only asks (fullscreenRequested); the host expands. Fill
-// the window with a CSS overlay rather than the browser Fullscreen API, which a permissions policy blocks in
-// many embedding contexts (it then silently does nothing) -- the overlay always works. Escape exits.
+// The toolbar button and the diagram's built-in button both toggle our own window overlay -- not the browser
+// Fullscreen API, which hides everything outside the panel and would take the toolbar button with it. Either
+// button expands the canvas to fill the window below the header; the same button collapses it, and it mirrors
+// the state onto both controls. Escape exits too.
 let expanded = false;
 const setDiagramExpanded = (value: boolean): void => {
     if (expanded === value) return;
     expanded = value;
     canvasPanel.classList.toggle('is-fullscreen', value);
+    const label = value ? 'Exit fullscreen' : 'Enter fullscreen';
+    fullscreenButton.classList.toggle('is-active', value);
+    fullscreenButton.title = label;
+    fullscreenButton.setAttribute('aria-label', label);
+    fullscreenButton.setAttribute('aria-pressed', String(value));
     diagram.setFullscreenState(value);
     requestAnimationFrame(() => {
         diagram.resize(diagramHost.clientWidth, diagramHost.clientHeight);
@@ -258,6 +265,7 @@ const setDiagramExpanded = (value: boolean): void => {
 };
 
 diagram.on('fullscreenRequested', ({ fullscreen }) => setDiagramExpanded(fullscreen));
+fullscreenButton.addEventListener('click', () => setDiagramExpanded(!expanded));
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && expanded) setDiagramExpanded(false);
 });
@@ -339,7 +347,6 @@ document.querySelector<HTMLButtonElement>('#undoBtn')!.addEventListener('click',
 document.querySelector<HTMLButtonElement>('#redoBtn')!.addEventListener('click', () => {
     diagram.redo(); updateState();
 });
-document.querySelector<HTMLButtonElement>('#fitBtn')!.addEventListener('click', () => setDiagramExpanded(!expanded));
 document.querySelector<HTMLButtonElement>('#exportBtn')!.addEventListener('click', () => {
     const image = diagram.takeScreenshot({
         scope: 'content',

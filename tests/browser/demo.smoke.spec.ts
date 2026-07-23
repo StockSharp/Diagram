@@ -34,10 +34,12 @@ test('demo exercises palette, theme, runtime errors and full-image export', asyn
     expect(pageErrors).toEqual([]);
 });
 
-test('demo toolbar and component requests share native fullscreen', async ({ page }) => {
+test('demo toolbar and component requests share the fullscreen overlay', async ({ page }) => {
     await page.goto('/demo/index.html');
     const componentButton = page.locator('[data-ssdiagram-fullscreen-button]');
     const toolbarButton = page.locator('#fullscreenBtn');
+    const isExpanded = (): Promise<boolean> => page.evaluate(() =>
+        document.querySelector('.canvas-panel')?.classList.contains('is-fullscreen') ?? false);
 
     await page.evaluate(() => (window as unknown as {
         stockSharpDiagramDemo: { setFullscreenButtonVisible(visible: boolean): void };
@@ -49,8 +51,7 @@ test('demo toolbar and component requests share native fullscreen', async ({ pag
     await expect(componentButton).toBeVisible();
 
     await toolbarButton.click();
-    await expect.poll(() => page.evaluate(() => document.fullscreenElement?.classList
-        .contains('canvas-panel') ?? false)).toBe(true);
+    await expect.poll(isExpanded).toBe(true);
     await expect(toolbarButton).toHaveAttribute('aria-label', 'Exit fullscreen');
     await expect(toolbarButton).toHaveClass(/is-active/);
     await expect(toolbarButton).toHaveAttribute('aria-pressed', 'true');
@@ -59,8 +60,9 @@ test('demo toolbar and component requests share native fullscreen', async ({ pag
     await expect(componentButton).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#diagram canvas')).toBeVisible();
 
+    // The overlay leaves the header (and both controls) on screen, so the same toolbar button collapses it.
     await toolbarButton.click();
-    await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+    await expect.poll(isExpanded).toBe(false);
     await expect(toolbarButton).toHaveAttribute('aria-label', 'Enter fullscreen');
     await expect(toolbarButton).not.toHaveClass(/is-active/);
     await expect(toolbarButton).toHaveAttribute('aria-pressed', 'false');
@@ -69,10 +71,9 @@ test('demo toolbar and component requests share native fullscreen', async ({ pag
     await expect(componentButton).toHaveAttribute('aria-pressed', 'false');
 
     await componentButton.click();
-    await expect.poll(() => page.evaluate(() => document.fullscreenElement?.classList
-        .contains('canvas-panel') ?? false)).toBe(true);
+    await expect.poll(isExpanded).toBe(true);
     await componentButton.click();
-    await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+    await expect.poll(isExpanded).toBe(false);
 });
 
 test('node properties change live input and output connection policies', async ({ page }) => {
