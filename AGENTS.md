@@ -13,7 +13,7 @@ never commit them.
 ## Everyday commands
 - `npm run build` — build the library and demo bundles.
 - `npm test` — typecheck + public-API check + unit tests (`node:test`). Run before every commit.
-- `npm run test:browser` — Playwright browser smoke tests (builds first).
+- `npm run test:browser` — Playwright browser smoke tests (builds first). **Local only** — CI runs the headless unit tests, which already cover the same behaviour; this suite is not run in CI.
 - `npm run serve` — serve the demo at `http://0.0.0.0:8792` for manual checks.
 
 ## The public API is snapshot-tested

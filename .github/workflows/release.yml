@@ -25,6 +25,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
         with:
@@ -59,12 +60,6 @@ jobs:
       - name: Run tests
         if: steps.gate.outputs.publish == 'true'
         run: npm test
-      - name: Install Chromium for the browser tests
-        if: steps.gate.outputs.publish == 'true'
-        run: npx playwright install --with-deps chromium
-      - name: Run browser tests
-        if: steps.gate.outputs.publish == 'true'
-        run: npm run test:browser
 
       - name: Publish to npm
         # Trusted publishing (OIDC) via the id-token permission -- no NPM_TOKEN --

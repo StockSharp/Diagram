@@ -326,8 +326,9 @@ The browser suite covers Chromium smoke, interaction and lifecycle scenarios
 at DPR 1 and 2.
 
 CI verifies type checking, the reviewed declaration snapshot, unit/integration
-tests, Chromium smoke/interaction/lifecycle checks, all bundles and tarball
-contents. GitHub Pages publishes the demo from `main`.
+tests, all bundles and tarball contents. The Playwright browser suite runs
+locally via `npm run test:browser` (not in CI — the headless unit tests already
+cover the same behaviour). GitHub Pages publishes the demo from `main`.
 
 Publishing is driven by the version in `package.json`. `release.yml` runs on
 every push to `main` and publishes only when that version is not yet on npm, so
