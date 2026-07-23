@@ -11,6 +11,7 @@ renderer, read-only web embed, and versioned diagram document model.
 ![StockSharp JS Strategy Diagram — visual strategy editor with typed connections and element palette](sample.png)
 
 [Live demo](https://stocksharp.github.io/Diagram/demo/) ·
+[StockSharp website](https://stocksharp.com/) ·
 [GitHub repository](https://github.com/StockSharp/Diagram) ·
 [Issue tracker](https://github.com/StockSharp/Diagram/issues)
 
