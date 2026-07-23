@@ -241,31 +241,26 @@ diagram.on('linkValidation', ({ allowed, reason }) => {
     };
     setStatus(messages[reason] ?? `Rejected: ${reason}.`);
 });
-const syncDiagramFullscreenState = (): void => {
-    const fullscreen = document.fullscreenElement === canvasPanel;
-    diagram.setFullscreenState(fullscreen);
+// The diagram's built-in top-right fullscreen button only asks (fullscreenRequested); the host expands. Fill
+// the window with a CSS overlay rather than the browser Fullscreen API, which a permissions policy blocks in
+// many embedding contexts (it then silently does nothing) -- the overlay always works. Escape exits.
+let expanded = false;
+const setDiagramExpanded = (value: boolean): void => {
+    if (expanded === value) return;
+    expanded = value;
+    canvasPanel.classList.toggle('is-fullscreen', value);
+    diagram.setFullscreenState(value);
     requestAnimationFrame(() => {
         diagram.resize(diagramHost.clientWidth, diagramHost.clientHeight);
         diagram.zoomToFit();
     });
-    setStatus(fullscreen ? 'Host expanded the diagram.' : 'Host restored the diagram.');
+    setStatus(value ? 'Diagram expanded to fill the window.' : 'Diagram restored.');
 };
 
-diagram.on('fullscreenRequested', ({ fullscreen }) => {
-    const applyRequest = async (): Promise<void> => {
-        if (fullscreen) {
-            if (document.fullscreenElement === canvasPanel) return;
-            await canvasPanel.requestFullscreen({ navigationUI: 'hide' });
-        } else if (document.fullscreenElement === canvasPanel) {
-            await document.exitFullscreen();
-        }
-    };
-    void applyRequest().catch((error: unknown) => {
-        diagram.setFullscreenState(document.fullscreenElement === canvasPanel);
-        setStatus(error instanceof Error ? error.message : 'Fullscreen request failed.');
-    });
+diagram.on('fullscreenRequested', ({ fullscreen }) => setDiagramExpanded(fullscreen));
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && expanded) setDiagramExpanded(false);
 });
-document.addEventListener('fullscreenchange', syncDiagramFullscreenState);
 diagram.on('nodeOpen', ({ nodes }) => {
     const selected = nodes[0];
     if (selected?.openAction !== 'indicatorSettings') return;
@@ -344,7 +339,7 @@ document.querySelector<HTMLButtonElement>('#undoBtn')!.addEventListener('click',
 document.querySelector<HTMLButtonElement>('#redoBtn')!.addEventListener('click', () => {
     diagram.redo(); updateState();
 });
-document.querySelector<HTMLButtonElement>('#fitBtn')!.addEventListener('click', () => diagram.zoomToFit());
+document.querySelector<HTMLButtonElement>('#fitBtn')!.addEventListener('click', () => setDiagramExpanded(!expanded));
 document.querySelector<HTMLButtonElement>('#exportBtn')!.addEventListener('click', () => {
     const image = diagram.takeScreenshot({
         scope: 'content',

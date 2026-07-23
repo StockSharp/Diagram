@@ -34,32 +34,45 @@ test('demo exercises palette, theme, runtime errors and full-image export', asyn
     expect(pageErrors).toEqual([]);
 });
 
-test('demo host handles fullscreen requests from the component', async ({ page }) => {
+test('demo toolbar and component requests share native fullscreen', async ({ page }) => {
     await page.goto('/demo/index.html');
-    const button = page.locator('[data-ssdiagram-fullscreen-button]');
+    const componentButton = page.locator('[data-ssdiagram-fullscreen-button]');
+    const toolbarButton = page.locator('#fullscreenBtn');
 
     await page.evaluate(() => (window as unknown as {
         stockSharpDiagramDemo: { setFullscreenButtonVisible(visible: boolean): void };
     }).stockSharpDiagramDemo.setFullscreenButtonVisible(false));
-    await expect(button).toBeHidden();
+    await expect(componentButton).toBeHidden();
     await page.evaluate(() => (window as unknown as {
         stockSharpDiagramDemo: { setFullscreenButtonVisible(visible: boolean): void };
     }).stockSharpDiagramDemo.setFullscreenButtonVisible(true));
-    await expect(button).toBeVisible();
+    await expect(componentButton).toBeVisible();
 
-    await button.click();
+    await toolbarButton.click();
     await expect.poll(() => page.evaluate(() => document.fullscreenElement?.classList
         .contains('canvas-panel') ?? false)).toBe(true);
-    await expect(button).toHaveAttribute('aria-label', 'Exit fullscreen');
-    await expect(button).toHaveClass(/is-active/);
-    await expect(button).toHaveAttribute('aria-pressed', 'true');
+    await expect(toolbarButton).toHaveAttribute('aria-label', 'Exit fullscreen');
+    await expect(toolbarButton).toHaveClass(/is-active/);
+    await expect(toolbarButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(componentButton).toHaveAttribute('aria-label', 'Exit fullscreen');
+    await expect(componentButton).toHaveClass(/is-active/);
+    await expect(componentButton).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#diagram canvas')).toBeVisible();
 
-    await button.click();
+    await toolbarButton.click();
     await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
-    await expect(button).toHaveAttribute('aria-label', 'Enter fullscreen');
-    await expect(button).not.toHaveClass(/is-active/);
-    await expect(button).toHaveAttribute('aria-pressed', 'false');
+    await expect(toolbarButton).toHaveAttribute('aria-label', 'Enter fullscreen');
+    await expect(toolbarButton).not.toHaveClass(/is-active/);
+    await expect(toolbarButton).toHaveAttribute('aria-pressed', 'false');
+    await expect(componentButton).toHaveAttribute('aria-label', 'Enter fullscreen');
+    await expect(componentButton).not.toHaveClass(/is-active/);
+    await expect(componentButton).toHaveAttribute('aria-pressed', 'false');
+
+    await componentButton.click();
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement?.classList
+        .contains('canvas-panel') ?? false)).toBe(true);
+    await componentButton.click();
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
 });
 
 test('node properties change live input and output connection policies', async ({ page }) => {
