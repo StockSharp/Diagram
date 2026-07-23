@@ -59,9 +59,8 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Publish the attached package to npm
+        # Authentication comes from npm trusted publishing (OIDC) via the id-token
+        # permission above -- no NPM_TOKEN secret needed, and the provenance
+        # attestation (publishConfig.provenance) is signed with the same token.
         if: steps.registry.outputs.published != 'true'
         run: npm publish ./artifacts/*.tgz
-        env:
-          # Needed only to bootstrap the first publish. Once npm trusted
-          # publishing is configured for release.yml, remove this secret.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
