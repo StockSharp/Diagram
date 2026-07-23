@@ -72,6 +72,8 @@ export interface DiagramOptions {
      *  canvas). A light theme sets a low ceiling so the otherwise-light link colours darken enough
      *  to stay visible on a light canvas. */
     linkMaxLightness?: number;
+    /** When true, colour links by their source socket type; the default draws links in the neutral grey. */
+    typedLinkColors?: boolean;
     /** Optional minimap colours. When omitted they are derived from the
      *  current canvas background, so a normal light/dark theme switch also
      *  rethemes the overview. */
@@ -355,6 +357,7 @@ export declare class Diagram {
         background?: string;
         gridColor?: string;
         linkMaxLightness?: number;
+        typedLinkColors?: boolean;
         overviewBackground?: string;
         overviewBorderColor?: string;
         overviewViewportColor?: string;
@@ -669,6 +672,9 @@ export interface DiagramThemeOptions {
     overviewBackground?: string;
     gridColor?: string;
     linkMaxLightness?: number;
+    /** When true, colour links by their source socket type; the default (false) draws every link in the
+     *  neutral grey so a scheme reads uniformly. Sockets stay type-coloured either way. */
+    typedLinkColors?: boolean;
     overviewBorderColor?: string;
     overviewViewportColor?: string;
     overviewViewportFill?: string;

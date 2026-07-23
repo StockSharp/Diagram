@@ -106,6 +106,8 @@ export interface DiagramOptions {
      *  canvas). A light theme sets a low ceiling so the otherwise-light link colours darken enough
      *  to stay visible on a light canvas. */
     linkMaxLightness?: number;
+    /** When true, colour links by their source socket type; the default draws links in the neutral grey. */
+    typedLinkColors?: boolean;
     /** Optional minimap colours. When omitted they are derived from the
      *  current canvas background, so a normal light/dark theme switch also
      *  rethemes the overview. */
@@ -1560,6 +1562,7 @@ export class Diagram {
         background?: string;
         gridColor?: string;
         linkMaxLightness?: number;
+        typedLinkColors?: boolean;
         overviewBackground?: string;
         overviewBorderColor?: string;
         overviewViewportColor?: string;
@@ -1568,6 +1571,7 @@ export class Diagram {
         if (t.background !== undefined) this.opts.background = t.background;
         if (t.gridColor !== undefined) this.opts.gridColor = t.gridColor;
         if (t.linkMaxLightness !== undefined) this.opts.linkMaxLightness = t.linkMaxLightness;
+        if (t.typedLinkColors !== undefined) this.opts.typedLinkColors = t.typedLinkColors;
         if (t.overviewBackground !== undefined) this.opts.overviewBackground = t.overviewBackground;
         if (t.overviewBorderColor !== undefined) this.opts.overviewBorderColor = t.overviewBorderColor;
         if (t.overviewViewportColor !== undefined) this.opts.overviewViewportColor = t.overviewViewportColor;
@@ -1666,6 +1670,16 @@ export class Diagram {
         const map = this.opts.typeColors ?? {};
         const base = map[type] ?? `hsl(${hashHue(type)}, 62%, 58%)`;
         return maxL !== undefined ? clampLightness(base, maxL) : base;
+    }
+    // Selection/hover accent. The dark-canvas blue washes out on a light canvas, so a light theme
+    // (linkMaxLightness < 0.5) inverts to a darker, more saturated blue that stays clearly visible.
+    private selectionColor(): string {
+        const maxL = this.opts.linkMaxLightness;
+        return maxL !== undefined && maxL < 0.5 ? '#0d6efd' : '#4aa3ff';
+    }
+    private linkHoverColor(): string {
+        const maxL = this.opts.linkMaxLightness;
+        return maxL !== undefined && maxL < 0.5 ? '#6aa9f0' : '#cfe3ff';
     }
 
     // ---- hit testing (world coords) ---------------------------------
@@ -2499,14 +2513,16 @@ export class Diagram {
             const b = this.endpoint(l, 'to');
             if (a === null || b === null) continue;
             const fp = this.nodes.find((n) => n.id === l.from)?.outPorts.find((p) => p.id === l.fromPort);
-            const baseColor = fp ? this.portColor(fp.type) : '#7d828a';
+            const baseColor = (this.opts.typedLinkColors ?? false) && fp !== undefined
+                ? this.portColor(fp.type)
+                : this.portColor('');
             const state = options.selection && l === this.selectedLink
                 ? 'sel'
                 : options.transient && (l === this.hoveredLink
                     || (hoveredNode !== null && (l.from === hoveredNode.id || l.to === hoveredNode.id)))
                     ? 'hov'
                     : 'norm';
-            const color = state === 'sel' ? '#4aa3ff' : state === 'hov' ? '#cfe3ff' : baseColor;
+            const color = state === 'sel' ? this.selectionColor() : state === 'hov' ? this.linkHoverColor() : baseColor;
             const width = state === 'sel' ? 3 : state === 'hov' ? 2.6 : 2;
             const pts = this.routeLink(a, b, new Set([l.from, l.to]));
             this.strokeRoute(pts, color, width, prior);
@@ -2687,7 +2703,7 @@ export class Diagram {
         ctx.fillStyle = hasLoadError ? ERROR_BACKGROUND : active ? '#ffd1dc' : n.color;
         ctx.fill();
         ctx.lineWidth = selected ? 2 : 1.5;
-        ctx.strokeStyle = selected ? '#4aa3ff' : n.border;
+        ctx.strokeStyle = selected ? this.selectionColor() : n.border;
         ctx.stroke();
         if (hasLoadError || hasRuntimeError) {
             let alpha = 1;

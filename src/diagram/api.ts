@@ -69,6 +69,9 @@ export interface DiagramThemeOptions {
     overviewBackground?: string;
     gridColor?: string;
     linkMaxLightness?: number;
+    /** When true, colour links by their source socket type; the default (false) draws every link in the
+     *  neutral grey so a scheme reads uniformly. Sockets stay type-coloured either way. */
+    typedLinkColors?: boolean;
     overviewBorderColor?: string;
     overviewViewportColor?: string;
     overviewViewportFill?: string;
