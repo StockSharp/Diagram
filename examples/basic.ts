@@ -241,9 +241,8 @@ diagram.on('linkValidation', ({ allowed, reason }) => {
     };
     setStatus(messages[reason] ?? `Rejected: ${reason}.`);
 });
-const setDiagramExpanded = (fullscreen: boolean): void => {
-    canvasPanel.classList.toggle('is-expanded', fullscreen);
-    document.body.classList.toggle('diagram-modal-open', fullscreen);
+const syncDiagramFullscreenState = (): void => {
+    const fullscreen = document.fullscreenElement === canvasPanel;
     diagram.setFullscreenState(fullscreen);
     requestAnimationFrame(() => {
         diagram.resize(diagramHost.clientWidth, diagramHost.clientHeight);
@@ -253,11 +252,20 @@ const setDiagramExpanded = (fullscreen: boolean): void => {
 };
 
 diagram.on('fullscreenRequested', ({ fullscreen }) => {
-    setDiagramExpanded(fullscreen);
+    const applyRequest = async (): Promise<void> => {
+        if (fullscreen) {
+            if (document.fullscreenElement === canvasPanel) return;
+            await canvasPanel.requestFullscreen({ navigationUI: 'hide' });
+        } else if (document.fullscreenElement === canvasPanel) {
+            await document.exitFullscreen();
+        }
+    };
+    void applyRequest().catch((error: unknown) => {
+        diagram.setFullscreenState(document.fullscreenElement === canvasPanel);
+        setStatus(error instanceof Error ? error.message : 'Fullscreen request failed.');
+    });
 });
-document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && diagram.isFullscreen()) setDiagramExpanded(false);
-});
+document.addEventListener('fullscreenchange', syncDiagramFullscreenState);
 diagram.on('nodeOpen', ({ nodes }) => {
     const selected = nodes[0];
     if (selected?.openAction !== 'indicatorSettings') return;
