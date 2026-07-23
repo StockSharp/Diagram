@@ -312,7 +312,6 @@ npm test
 npm run build
 npm run serve
 npm run pack:check
-npm run release:check -- v0.1.0
 npm run release:patch
 npm run release:minor
 npm run release:major
@@ -330,28 +329,25 @@ CI verifies type checking, the reviewed declaration snapshot, unit/integration
 tests, Chromium smoke/interaction/lifecycle checks, all bundles and tarball
 contents. GitHub Pages publishes the demo from `main`.
 
-Publishing is tag-driven. Create the version commit and tag, then push both:
+Publishing is driven by the version in `package.json`. `release.yml` runs on
+every push to `main` and publishes only when that version is not yet on npm, so
+an ordinary push is a no-op. To cut a release, bump the version and push:
 
 ```sh
-npm run release:patch
-git push origin main --follow-tags
+npm run release:patch   # or release:minor / release:major
+git push
 ```
 
-Use `release:minor` or `release:major` when appropriate. A pushed `v<version>`
-tag starts `release.yml`, which rejects a mismatched version, rebuilds and tests
-the repository, creates the GitHub Release, attaches the exact `.tgz` artifact,
-and publishes that tarball to npm with provenance. A failed publication can be
-retried for the existing tag through the workflow's `Run workflow` action;
-already-published versions are detected and skipped.
+The new version triggers `release.yml`, which rebuilds and tests the repository,
+publishes to npm with provenance, then creates the `v<version>` tag and GitHub
+Release. A failed publication can be retried from the workflow's `Run workflow`
+action; already-published versions are detected and skipped.
 
-The first publication needs a short-lived npm granular access token in the
-repository Actions secret `NPM_TOKEN`. After `@stocksharp/diagram` exists on npm,
-configure tokenless trusted publishing, then remove the secret and revoke the
-bootstrap token:
-
-```sh
-npm trust github @stocksharp/diagram --file release.yml --repo StockSharp/Diagram --allow-publish
-```
+Publishing authenticates through npm **trusted publishing (OIDC)** — there is no
+`NPM_TOKEN` secret. The workflow grants `id-token: write`, and npm exchanges the
+GitHub OIDC token for a short-lived publish token. The npm Trusted Publisher is
+bound to the workflow filename `release.yml`, so do not rename that workflow
+without updating the trusted publisher configuration on npmjs first.
 
 ## License
 

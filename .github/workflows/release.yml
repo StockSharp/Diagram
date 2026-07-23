@@ -1,66 +1,84 @@
 name: Publish package
 
+# Releases are driven by the version in package.json. This runs on every push to
+# main, but only publishes when that version is not yet on npm -- a normal push
+# whose version is already published is a no-op. To cut a release, bump the
+# version (npm run release:patch|minor|major) and push: the new version triggers
+# build, tests, npm publish (trusted publishing + provenance), and then the
+# vX.Y.Z tag + GitHub Release. workflow_dispatch re-runs the same logic for a
+# chosen ref (manual retry).
+
 on:
   push:
-    tags: ['v*']
+    branches: [main]
   workflow_dispatch:
     inputs:
-      tag:
-        description: Existing version tag to publish or retry
-        required: true
+      ref:
+        description: Ref (branch, tag, or SHA) to build and publish
+        required: false
         type: string
 
 permissions:
-  contents: write
-  id-token: write
+  contents: write   # push the vX.Y.Z tag and create the GitHub Release
+  id-token: write   # npm trusted publishing (OIDC) + provenance signing
 
 jobs:
-  package:
+  publish:
     runs-on: ubuntu-latest
-    env:
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - run: npm install --global npm@11.6.2
-      - run: npm ci
-      - name: Verify release tag
-        run: npm run release:check -- "$RELEASE_TAG"
-      - run: npm test
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:browser
-      - name: Create package
-        run: |
-          mkdir -p artifacts
-          npm pack --pack-destination artifacts
-      - name: Ensure GitHub Release exists
-        run: gh release view "$RELEASE_TAG" || gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --generate-notes
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - name: Attach package
-        run: gh release upload "$RELEASE_TAG" artifacts/*.tgz --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - name: Check published version
-        id: registry
+
+      - name: Decide whether this version needs publishing
+        id: gate
         shell: bash
         run: |
-          package_name="$(node --input-type=module -e "import pkg from './package.json' with { type: 'json' }; process.stdout.write(pkg.name)")"
-          package_version="$(node --input-type=module -e "import pkg from './package.json' with { type: 'json' }; process.stdout.write(pkg.version)")"
-          if npm view "$package_name@$package_version" version --json >/dev/null 2>&1; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
+          name="$(node --input-type=module -e "import pkg from './package.json' with { type: 'json' }; process.stdout.write(pkg.name)")"
+          version="$(node --input-type=module -e "import pkg from './package.json' with { type: 'json' }; process.stdout.write(pkg.version)")"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$name@$version is already on npm -- normal push, nothing to publish."
           else
-            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$name@$version is new -- building and publishing."
           fi
-      - name: Publish the attached package to npm
-        # Authentication comes from npm trusted publishing (OIDC) via the id-token
-        # permission above -- no NPM_TOKEN secret needed, and the provenance
-        # attestation (publishConfig.provenance) is signed with the same token.
-        if: steps.registry.outputs.published != 'true'
-        run: npm publish ./artifacts/*.tgz
+
+      - name: Upgrade npm (trusted publishing needs >= 11.5.1)
+        if: steps.gate.outputs.publish == 'true'
+        run: npm install --global npm@11.6.2
+      - name: Install dependencies
+        if: steps.gate.outputs.publish == 'true'
+        run: npm ci
+      - name: Run tests
+        if: steps.gate.outputs.publish == 'true'
+        run: npm test
+      - name: Install Chromium for the browser tests
+        if: steps.gate.outputs.publish == 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Run browser tests
+        if: steps.gate.outputs.publish == 'true'
+        run: npm run test:browser
+
+      - name: Publish to npm
+        # Trusted publishing (OIDC) via the id-token permission -- no NPM_TOKEN --
+        # and provenance from publishConfig.provenance. Publishes from the package
+        # directory; the prepack script builds dist/.
+        if: steps.gate.outputs.publish == 'true'
+        run: npm publish
+
+      - name: Tag the commit and create the GitHub Release
+        if: steps.gate.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag "${{ steps.gate.outputs.tag }}" || true
+          git push origin "${{ steps.gate.outputs.tag }}" || true
+          gh release view "${{ steps.gate.outputs.tag }}" >/dev/null 2>&1 \
+            || gh release create "${{ steps.gate.outputs.tag }}" --title "${{ steps.gate.outputs.tag }}" --generate-notes
