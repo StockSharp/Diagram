@@ -1,8 +1,14 @@
 name: Publish package
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to publish or retry
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -11,8 +17,12 @@ permissions:
 jobs:
   package:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -21,7 +31,7 @@ jobs:
       - run: npm install --global npm@11.6.2
       - run: npm ci
       - name: Verify release tag
-        run: npm run release:check -- "${{ github.event.release.tag_name }}"
+        run: npm run release:check -- "$RELEASE_TAG"
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
@@ -29,12 +39,28 @@ jobs:
         run: |
           mkdir -p artifacts
           npm pack --pack-destination artifacts
-      - name: Attach package
-        run: gh release upload "${{ github.event.release.tag_name }}" artifacts/*.tgz --clobber
+      - name: Ensure GitHub Release exists
+        run: gh release view "$RELEASE_TAG" || gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: Attach package
+        run: gh release upload "$RELEASE_TAG" artifacts/*.tgz --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Check published version
+        id: registry
+        shell: bash
+        run: |
+          package_name="$(node --input-type=module -e "import pkg from './package.json' with { type: 'json' }; process.stdout.write(pkg.name)")"
+          package_version="$(node --input-type=module -e "import pkg from './package.json' with { type: 'json' }; process.stdout.write(pkg.version)")"
+          if npm view "$package_name@$package_version" version --json >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish the attached package to npm
-        run: npm publish artifacts/*.tgz
+        if: steps.registry.outputs.published != 'true'
+        run: npm publish ./artifacts/*.tgz
         env:
           # Needed only to bootstrap the first publish. Once npm trusted
           # publishing is configured for release.yml, remove this secret.

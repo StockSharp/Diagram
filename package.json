@@ -115,7 +115,10 @@
     "test": "npm run typecheck && npm run api:check && npm run build:tests && node --test \"tests/_dist/**/*.test.cjs\"",
     "test:browser": "npm run build && playwright test",
     "pack:check": "npm pack --dry-run",
-    "release:check": "node tools/check-release-tag.mjs"
+    "release:check": "node tools/check-release-tag.mjs",
+    "release:patch": "npm version patch -m \"chore: release v%s\"",
+    "release:minor": "npm version minor -m \"chore: release v%s\"",
+    "release:major": "npm version major -m \"chore: release v%s\""
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",

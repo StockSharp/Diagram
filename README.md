@@ -312,6 +312,9 @@ npm run build
 npm run serve
 npm run pack:check
 npm run release:check -- v0.1.0
+npm run release:patch
+npm run release:minor
+npm run release:major
 npm run api:check
 npm run api:update  # only after reviewing an intentional public API change
 npm run test:browser
@@ -326,10 +329,19 @@ CI verifies type checking, the reviewed declaration snapshot, unit/integration
 tests, Chromium smoke/interaction/lifecycle checks, all bundles and tarball
 contents. GitHub Pages publishes the demo from `main`.
 
-Publishing is release-driven. Set `package.json` to the intended version and
-publish a GitHub Release tagged `v<version>`. The `release.yml` workflow rejects
-a mismatched tag, rebuilds and tests the repository, attaches the exact `.tgz`
-artifact to the release, and publishes that tarball to npm with provenance.
+Publishing is tag-driven. Create the version commit and tag, then push both:
+
+```sh
+npm run release:patch
+git push origin main --follow-tags
+```
+
+Use `release:minor` or `release:major` when appropriate. A pushed `v<version>`
+tag starts `release.yml`, which rejects a mismatched version, rebuilds and tests
+the repository, creates the GitHub Release, attaches the exact `.tgz` artifact,
+and publishes that tarball to npm with provenance. A failed publication can be
+retried for the existing tag through the workflow's `Run workflow` action;
+already-published versions are detected and skipped.
 
 The first publication needs a short-lived npm granular access token in the
 repository Actions secret `NPM_TOKEN`. After `@stocksharp/diagram` exists on npm,
