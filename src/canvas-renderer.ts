@@ -448,6 +448,7 @@ const RELINK_DRAG_THRESHOLD_PX = 4;
 const PORT_SQ = 9;           // socket square size — sits outside the node
 const LINK_STUB = 22;        // min horizontal lead-in/out before the elbow
 const LINK_HOP = 5;          // jump-over arc radius at crossings
+const LINK_CORNER = 8;       // corner rounding radius at elbows
 const SNAP_PX = 32;          // plug↔socket magnet radius (screen px)
 const DEFAULT_GRID_SIZE = 28;
 const ZOOM_MIN = 0.15;
@@ -2802,6 +2803,19 @@ export class Diagram {
         ctx.beginPath();
         ctx.moveTo(pts[0][0], pts[0][1]);
         const H = LINK_HOP;
+        // End a segment at its elbow with a rounded corner toward the next point (arcTo), clamped so it never
+        // eats more than half of either adjacent segment. The final segment ends straight into the port.
+        const finish = (i: number, x1: number, y1: number, x2: number, y2: number): void => {
+            if (i < pts.length - 1) {
+                const nx = pts[i + 1][0];
+                const ny = pts[i + 1][1];
+                const seg1 = Math.abs(x2 - x1) + Math.abs(y2 - y1);
+                const seg2 = Math.abs(nx - x2) + Math.abs(ny - y2);
+                ctx.arcTo(x2, y2, nx, ny, Math.min(LINK_CORNER, seg1 / 2, seg2 / 2));
+            } else {
+                ctx.lineTo(x2, y2);
+            }
+        };
         for (let i = 1; i < pts.length; i += 1) {
             const [x1, y1] = pts[i - 1];
             const [x2, y2] = pts[i];
@@ -2817,7 +2831,7 @@ export class Diagram {
                     if (dir > 0) ctx.arc(cx, y1, H, Math.PI, 2 * Math.PI, false);
                     else ctx.arc(cx, y1, H, 0, Math.PI, true);
                 }
-                ctx.lineTo(x2, y2);
+                finish(i, x1, y1, x2, y2);
             } else if (x1 === x2 && y1 !== y2) {
                 const dir = y2 > y1 ? 1 : -1;
                 const cuts = prior
@@ -2830,7 +2844,7 @@ export class Diagram {
                     if (dir > 0) ctx.arc(x1, cy, H, -Math.PI / 2, Math.PI / 2, false);
                     else ctx.arc(x1, cy, H, Math.PI / 2, -Math.PI / 2, true);
                 }
-                ctx.lineTo(x2, y2);
+                finish(i, x1, y1, x2, y2);
             } else {
                 ctx.lineTo(x2, y2);
             }
