@@ -1,4 +1,4 @@
-# @stocksharp/diagram
+# StockSharp JS Strategy Diagram
 
 [![Build and test](https://github.com/StockSharp/Diagram/actions/workflows/ci.yml/badge.svg)](https://github.com/StockSharp/Diagram/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/%40stocksharp%2Fdiagram.svg)](https://www.npmjs.com/package/@stocksharp/diagram)
