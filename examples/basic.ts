@@ -220,6 +220,10 @@ diagram.on('nodeAdded', ({ nodes }) => {
     updateState();
 });
 diagram.on('nodeRemoved', updateState);
+// Undo/redo availability is owned by the control; track its canonical signal so
+// the toolbar buttons stay in sync for every command (delete, drag, relink, …),
+// not only the model mutations handled above.
+diagram.on('undoStackChanged', updateState);
 diagram.on('linkAdded', ({ links }) => {
     const link = links[0];
     if (link === undefined) return;
